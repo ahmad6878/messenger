@@ -1,15 +1,16 @@
 {
   "name": "messenger",
   "version": "1.0.0",
-  "description": "My first messenger",
+  "description": "My personal messenger",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.8.0",
-    "jsonwebtoken": "^9.0.3",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.1.1",
     "ws": "^8.16.0"
   }
 }

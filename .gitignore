@@ -1,2 +1,15 @@
-node_modules
-db.sqlite
+# Папка с зависимостями
+/node_modules
+
+# Файлы баз данных SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Логи
+logs
+*.log
+npm-debug.log*
+
+# Системный файл macOS
+.DS_Store
