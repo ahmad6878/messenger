@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Messenger Pro</title>
+    <title>Messenger Pro Max</title>
     <style>
         :root { --primary: #007AFF; --bg: #ffffff; --gray: #f2f2f7; --text: #000; --msg-me: #007AFF; --msg-op: #e9e9eb; }
         * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -17,34 +17,46 @@
         /* Главный контейнер */
         #main-app { display: none; height: 100vh; width: 100%; }
 
-        /* Список чатов */
+        /* Список чатов (Сайдбар) */
         #sidebar { width: 30%; border-right: 1px solid #ddd; display: flex; flex-direction: column; background: white; }
         #sidebar-header { padding: 15px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
         #chat-list { flex: 1; overflow-y: auto; }
         .chat-item { padding: 15px; border-bottom: 1px solid #f2f2f7; cursor: pointer; display: flex; align-items: center; gap: 10px; }
-        .chat-item:active { background: #f2f2f7; }
         .avatar { width: 45px; height: 45px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
 
-        /* Область чата */
+        /* Чат */
         #chat-area { flex: 1; display: flex; flex-direction: column; background: white; }
-        #chat-header { padding: 10px 15px; border-bottom: 1px solid #ddd; display: flex; align-items: center; gap: 10px; background: #fff; }
-        #back-btn { display: none; font-size: 24px; cursor: pointer; padding-right: 10px; }
-        #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; background: #fff; }
+        #chat-header { padding: 10px 15px; border-bottom: 1px solid #ddd; display: flex; align-items: center; gap: 10px; }
+        #back-btn { display: none; font-size: 24px; cursor: pointer; }
+        #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
         
-        /* Сообщения */
-        .msg { max-width: 75%; padding: 8px 12px; border-radius: 15px; font-size: 15px; line-height: 1.4; position: relative; }
+        .msg { max-width: 75%; padding: 8px 12px; border-radius: 15px; font-size: 15px; line-height: 1.4; word-wrap: break-word; }
         .msg.me { align-self: flex-end; background: var(--msg-me); color: white; }
         .msg.op { align-self: flex-start; background: var(--msg-op); color: black; }
         .msg img { max-width: 100%; border-radius: 10px; margin-top: 5px; }
-        .msg audio { width: 200px; height: 35px; margin-top: 5px; }
+        .msg audio { max-width: 200px; height: 35px; margin-top: 5px; outline: none; }
 
-        /* Ввод сообщения */
+        /* Панель ввода */
         #input-panel { padding: 10px; display: flex; align-items: center; gap: 10px; border-top: 1px solid #ddd; }
-        #msg-input { flex: 1; background: #f2f2f7; border: none; padding: 10px 15px; border-radius: 20px; }
-        .icon-btn { font-size: 20px; cursor: pointer; padding: 5px; }
+        #msg-input { flex: 1; background: #f2f2f7; border: none; padding: 10px 15px; border-radius: 20px; outline: none; }
+        .icon-btn { font-size: 22px; cursor: pointer; padding: 5px; user-select: none; }
         #record-btn.recording { color: red; animation: pulse 1s infinite; }
 
-        /* Мобильная адаптация */
+        /* Настройки (Модальное окно) */
+        #settings-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 3000; justify-content: center; align-items: center; }
+        .settings-content { background: white; padding: 30px; border-radius: 15px; width: 300px; text-align: center; }
+        .btn-danger { background: #ff3b30; width: 100%; margin-top: 15px; }
+
+        /* Звонки (Аудио) */
+        #call-screen { position: fixed; inset: 0; background: #222; z-index: 4000; display: none; flex-direction: column; align-items: center; justify-content: center; color: white; padding: 40px; }
+        /* Прячем видео элементы, так как нам нужен только звук */
+        #remote-video, #local-video { display: none; } 
+        .call-avatar { width: 120px; height: 120px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; margin-bottom: 30px; }
+        .call-controls { position: absolute; bottom: 50px; display: flex; gap: 40px; z-index: 4200; }
+        .call-btn { width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .hangup { background: #ff3b30; }
+        .answer { background: #34c759; }
+
         @media (max-width: 768px) {
             #sidebar { width: 100%; }
             #chat-area { position: fixed; inset: 0; width: 100%; z-index: 10; display: none; }
@@ -52,64 +64,92 @@
             #back-btn { display: block; }
         }
 
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-        
-        #toast { position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 10px; display: none; z-index: 2000; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
-    <div id="toast">Новое сообщение</div>
-
+    <!-- Экран авторизации -->
     <div id="auth-screen">
-        <h2 id="auth-title">Messenger</h2>
+        <h2>Messenger</h2>
         <input type="text" id="username" placeholder="Логин">
         <input type="password" id="password" placeholder="Пароль">
-        <div style="margin-top: 10px;">
-            <button onclick="auth('login')">Войти</button>
-            <button style="background:none; color:var(--primary)" onclick="auth('register')">Создать аккаунт</button>
-        </div>
+        <button onclick="auth('login')" style="margin-top: 10px;">Войти</button>
+        <button style="background:none; color:var(--primary)" onclick="auth('register')">Создать аккаунт</button>
     </div>
 
+    <!-- Главный экран -->
     <div id="main-app">
+        <!-- Левая панель (Сайдбар) -->
         <div id="sidebar">
             <div id="sidebar-header">
-                <span id="my-name" style="font-weight:bold" onclick="logout()">Профиль</span>
-                <span onclick="alert('Данные: ' + currentUser.username)">⚙️</span>
+                <span id="my-name" style="font-weight:bold; font-size: 18px;">Профиль</span>
+                <span class="icon-btn" onclick="openSettings()">⚙️</span>
             </div>
-            <div style="padding: 10px;"><input type="text" id="search" placeholder="Поиск по нику..." oninput="searchUsers()"></div>
+            <div style="padding: 10px;">
+                <input type="text" id="search" placeholder="Поиск по нику..." oninput="searchUsers()" style="width: 100%; margin: 0;">
+            </div>
             <div id="chat-list"></div>
         </div>
 
+        <!-- Правая панель (Чат) -->
         <div id="chat-area">
             <div id="chat-header">
                 <span id="back-btn" onclick="closeChat()">←</span>
-                <div class="avatar" id="chat-avatar" style="width:35px; height:35px">?</div>
+                <div class="avatar" id="chat-avatar" style="width:35px; height:35px; font-size:16px;">?</div>
                 <div style="flex:1"><b id="chat-user-name">Собеседник</b></div>
-                <span class="icon-btn" onclick="alert('Звонки в разработке...')">📞</span>
+                <button onclick="startCall()" style="padding:8px 12px; font-size:14px; border-radius: 50%; width: 40px; height: 40px;">📞</button>
             </div>
             <div id="messages"></div>
             <div id="input-panel">
-                <label class="icon-btn">📷<input type="file" id="file-input" hidden onchange="sendFile()"></label>
+                <label class="icon-btn">📷<input type="file" hidden onchange="sendFile(this.files[0])"></label>
                 <input type="text" id="msg-input" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') sendText()">
                 <span id="record-btn" class="icon-btn" onclick="toggleRecord()">🎤</span>
-                <button onclick="sendText()">→</button>
+                <button onclick="sendText()" style="padding: 10px 15px;">→</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно Настроек -->
+    <div id="settings-modal">
+        <div class="settings-content">
+            <h3>Настройки</h3>
+            <div class="avatar" id="settings-avatar" style="width:70px; height:70px; font-size:30px; margin: 15px auto;">U</div>
+            <h2 id="settings-name" style="margin-bottom: 20px;">Username</h2>
+            <button class="btn-danger" onclick="logout()">Выйти из аккаунта</button>
+            <div style="margin-top: 15px; color: gray; cursor: pointer;" onclick="closeSettings()">Закрыть</div>
+        </div>
+    </div>
+
+    <!-- Экран Звонка (Аудио) -->
+    <div id="call-screen">
+        <audio id="remote-video" autoplay></audio> <!-- Скрытый элемент для звука собеседника -->
+        <div class="call-avatar" id="call-avatar-display">U</div>
+        <h2 id="call-status" style="margin-bottom: 10px;">Звонок...</h2>
+        <h3 id="call-name">Username</h3>
+        <div class="call-controls">
+            <div id="answer-btn" class="call-btn answer" onclick="acceptCall()" style="display: none;">📞</div>
+            <div class="call-btn hangup" onclick="endCall()">🛑</div>
         </div>
     </div>
 
     <script>
-        let currentUser = null, token = null, ws = null, activeId = null, mediaRecorder = null, audioChunks = [];
+        let currentUser = null, token = null, ws = null, activeId = null, activeName = null;
+        let mediaRecorder = null, audioChunks = [];
+        let peerConn = null, localStream = null;
+        const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        async function auth(type) {
+        // --- Авторизация и запуск ---
+        async function auth(t) {
             const u = document.getElementById('username').value, p = document.getElementById('password').value;
-            const res = await fetch('/api/' + type, { method: 'POST', body: JSON.stringify({username:u, password:p}) });
+            if(!u || !p) return alert('Заполните поля!');
+            const res = await fetch('/api/'+t, { method:'POST', body: JSON.stringify({username:u, password:p}) });
             const data = await res.json();
             if (data.token) { 
                 token = data.token; currentUser = data.user; 
-                localStorage.setItem('m_token', token); localStorage.setItem('m_user', JSON.stringify(currentUser));
+                localStorage.setItem('m_token', token); localStorage.setItem('m_user', JSON.stringify(currentUser)); 
                 startApp(); 
-            } else if (type === 'register' && data.success) alert('Ок, теперь войди');
+            } else if (t==='register' && data.success) alert('Аккаунт создан! Теперь войди.');
             else alert('Ошибка');
         }
 
@@ -117,23 +157,37 @@
             document.getElementById('auth-screen').style.display = 'none';
             document.getElementById('main-app').style.display = 'flex';
             document.getElementById('my-name').innerText = currentUser.username;
+            document.getElementById('settings-name').innerText = currentUser.username;
+            document.getElementById('settings-avatar').innerText = currentUser.username[0].toUpperCase();
             connectWS(); loadChats();
         }
 
+        // --- Настройки ---
+        function openSettings() { document.getElementById('settings-modal').style.display = 'flex'; }
+        function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
+        function logout() { localStorage.clear(); location.reload(); }
+
+        // --- WebSocket ---
         function connectWS() {
             const prot = location.protocol === 'https:' ? 'wss://' : 'ws://';
             ws = new WebSocket(prot + location.host);
             ws.onopen = () => ws.send(JSON.stringify({type:'auth', token}));
-            ws.onmessage = (e) => {
+            ws.onmessage = async (e) => {
                 const d = JSON.parse(e.data);
-                if (d.type === 'private_message') {
-                    if (activeId == d.sender_id || activeId == d.receiver_id) addMsg(d);
-                    else if (d.sender_id != currentUser.id) showToast();
-                    loadChats();
+                // Чат
+                if (d.type === 'private_message') { 
+                    if(activeId == d.sender_id || activeId == d.receiver_id) addMsg(d); 
+                    loadChats(); 
                 }
+                // Звонки
+                if (d.type === 'call_offer') handleOffer(d);
+                if (d.type === 'call_answer') await peerConn.setRemoteDescription(new RTCSessionDescription(d.sdp));
+                if (d.type === 'ice_candidate') await peerConn.addIceCandidate(new RTCIceCandidate(d.candidate));
+                if (d.type === 'call_hangup') endCall(false);
             };
         }
 
+        // --- Загрузка чатов ---
         async function loadChats() {
             const res = await fetch('/api/chats', { headers: {'Authorization': 'Bearer ' + token} });
             const chats = await res.json();
@@ -141,81 +195,15 @@
             list.innerHTML = '';
             chats.forEach(c => {
                 const div = document.createElement('div'); div.className = 'chat-item';
-                div.innerHTML = `<div class="avatar">${c.username[0].toUpperCase()}</div><div><b>${c.username}</b></div>`;
+                div.innerHTML = `<div class="avatar">${c.username[0].toUpperCase()}</div><div style="font-size:16px;"><b>${c.username}</b></div>`;
                 div.onclick = () => openChat(c.id, c.username);
                 list.appendChild(div);
             });
         }
 
-        async function openChat(id, name) {
-            activeId = id;
-            document.getElementById('chat-user-name').innerText = name;
-            document.getElementById('chat-avatar').innerText = name[0].toUpperCase();
-            document.getElementById('chat-area').classList.add('active');
-            const res = await fetch('/api/messages/' + id, { headers: {'Authorization': 'Bearer ' + token} });
-            const msgs = await res.json();
-            const container = document.getElementById('messages');
-            container.innerHTML = '';
-            msgs.forEach(addMsg);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function closeChat() { document.getElementById('chat-area').classList.remove('active'); activeId = null; }
-
-        function addMsg(m) {
-            const container = document.getElementById('messages');
-            const div = document.createElement('div');
-            div.className = 'msg ' + (m.sender_id == currentUser.id ? 'me' : 'op');
-            if (m.msgType === 'image') div.innerHTML = `<img src="${m.file_url}">`;
-            else if (m.msgType === 'audio') div.innerHTML = `<audio controls src="${m.file_url}"></audio>`;
-            else div.innerText = m.text;
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function sendText() {
-            const i = document.getElementById('msg-input');
-            if (!i.value || !activeId) return;
-            ws.send(JSON.stringify({type:'private_message', receiverId: activeId, text: i.value}));
-            i.value = '';
-        }
-
-        async function sendFile() {
-            const file = document.getElementById('file-input').files[0];
-            if (!file) return;
-            const formData = new FormData(); formData.append('file', file);
-            const res = await fetch('/api/upload', { method:'POST', headers:{'Authorization':'Bearer '+token}, body:formData });
-            const data = await res.json();
-            ws.send(JSON.stringify({type:'private_message', receiverId: activeId, msgType: 'image', fileUrl: data.file_url}));
-        }
-
-        async function toggleRecord() {
-            const btn = document.getElementById('record-btn');
-            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                mediaRecorder.onstop = async () => {
-                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                    const file = new File([blob], "voice.webm");
-                    const formData = new FormData(); formData.append('file', file);
-                    const res = await fetch('/api/upload', { method:'POST', headers:{'Authorization':'Bearer '+token}, body:formData });
-                    const data = await res.json();
-                    ws.send(JSON.stringify({type:'private_message', receiverId: activeId, msgType: 'audio', fileUrl: data.file_url}));
-                    stream.getTracks().forEach(t => t.stop());
-                };
-                mediaRecorder.start();
-                btn.classList.add('recording');
-            } else {
-                mediaRecorder.stop();
-                btn.classList.remove('recording');
-            }
-        }
-
         async function searchUsers() {
             const q = document.getElementById('search').value;
-            if (q.length < 2) return;
+            if (q.length < 2) { loadChats(); return; }
             const res = await fetch('/api/search?q=' + q, { headers: {'Authorization': 'Bearer ' + token} });
             const users = await res.json();
             const list = document.getElementById('chat-list');
@@ -223,18 +211,169 @@
             users.forEach(u => {
                 const div = document.createElement('div'); div.className = 'chat-item';
                 div.innerHTML = `<div class="avatar">${u.username[0].toUpperCase()}</div><div><b>${u.username}</b></div>`;
-                div.onclick = () => openChat(u.id, u.username);
+                div.onclick = () => { document.getElementById('search').value=''; openChat(u.id, u.username); };
                 list.appendChild(div);
             });
         }
 
-        function showToast() {
-            const t = document.getElementById('toast'); t.style.display = 'block';
-            setTimeout(() => t.style.display = 'none', 3000);
+        // --- Открытие чата и сообщения ---
+        async function openChat(id, name) {
+            activeId = id;
+            activeName = name;
+            document.getElementById('chat-user-name').innerText = name;
+            document.getElementById('chat-avatar').innerText = name[0].toUpperCase();
+            document.getElementById('chat-area').classList.add('active');
+            
+            const res = await fetch('/api/messages/' + id, { headers: {'Authorization': 'Bearer ' + token} });
+            const msgs = await res.json();
+            const container = document.getElementById('messages');
+            container.innerHTML = '';
+            msgs.forEach(addMsg);
+            setTimeout(() => container.scrollTop = container.scrollHeight, 100);
         }
 
-        function logout() { localStorage.clear(); location.reload(); }
+        function closeChat() { document.getElementById('chat-area').classList.remove('active'); activeId = null; activeName = null;}
 
+        function addMsg(m) {
+            const container = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = 'msg ' + (m.sender_id == currentUser.id ? 'me' : 'op');
+            
+            // ИСПРАВЛЕНИЕ: Точная проверка типа сообщения (учитываем БД и WebSockets)
+            const type = m.msgType || m.type || 'text';
+            
+            if (type === 'image' && m.file_url) {
+                div.innerHTML = `<img src="${m.file_url}" onload="scrollToBottom()">`; // onload гарантирует скролл после загрузки картинки
+            } 
+            else if (type === 'audio' && m.file_url) {
+                div.innerHTML = `<audio controls src="${m.file_url}"></audio>`;
+            } 
+            else {
+                div.innerText = m.text || '';
+            }
+            
+            container.appendChild(div);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('messages');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // --- Отправка данных ---
+        function sendText() {
+            const i = document.getElementById('msg-input');
+            if (!i.value.trim() || !activeId) return;
+            ws.send(JSON.stringify({type:'private_message', receiverId: activeId, text: i.value}));
+            i.value = '';
+        }
+
+        async function sendFile(file) {
+            if (!file || !activeId) return;
+            const fd = new FormData(); fd.append('file', file);
+            const res = await fetch('/api/upload', { method:'POST', headers:{'Authorization':'Bearer '+token}, body:fd });
+            const d = await res.json();
+            // Отправляем сообщение по вебсокету сразу после загрузки файла
+            ws.send(JSON.stringify({type:'private_message', receiverId: activeId, msgType: 'image', fileUrl: d.file_url}));
+        }
+
+        // --- Голосовые сообщения ---
+        async function toggleRecord() {
+            if (!activeId) return alert('Выберите чат!');
+            const btn = document.getElementById('record-btn');
+            
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    mediaRecorder.onstop = async () => {
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const file = new File([blob], "voice.webm");
+                        const fd = new FormData(); fd.append('file', file);
+                        const res = await fetch('/api/upload', { method:'POST', headers:{'Authorization':'Bearer '+token}, body:fd });
+                        const d = await res.json();
+                        // Отправляем сообщение по вебсокету сразу после загрузки аудио
+                        ws.send(JSON.stringify({type:'private_message', receiverId: activeId, msgType: 'audio', fileUrl: d.file_url}));
+                        stream.getTracks().forEach(t => t.stop());
+                    };
+                    mediaRecorder.start();
+                    btn.classList.add('recording');
+                    btn.innerText = '⏹️'; 
+                } catch (e) { alert('Нет доступа к микрофону!'); }
+            } else {
+                mediaRecorder.stop();
+                btn.classList.remove('recording');
+                btn.innerText = '🎤';
+            }
+        }
+
+        // --- Аудиозвонки (WebRTC) ---
+        async function startCall() {
+            if(!activeId) return;
+            showCallScreen(activeName, "Исходящий звонок...", false);
+            try {
+                // ИСПРАВЛЕНИЕ: Запрашиваем ТОЛЬКО аудио
+                await initRTC(true);
+                const offer = await peerConn.createOffer();
+                await peerConn.setLocalDescription(offer);
+                ws.send(JSON.stringify({ type: 'call_offer', receiverId: activeId, sdp: offer }));
+            } catch (e) { alert('Нет доступа к микрофону!'); endCall(false); }
+        }
+
+        async function handleOffer(d) {
+            activeId = d.sender_id;
+            // Ищем имя звонящего
+            const caller = document.getElementById('chat-list').innerText.includes(d.sender_id) ? "Собеседник" : "Кто-то звонит"; 
+            showCallScreen(caller, "Входящий звонок...", true);
+            try {
+                await initRTC(true);
+                await peerConn.setRemoteDescription(new RTCSessionDescription(d.sdp));
+            } catch (e) { endCall(true); }
+        }
+
+        async function acceptCall() {
+            document.getElementById('answer-btn').style.display = 'none';
+            document.getElementById('call-status').innerText = "Разговор (Аудио)";
+            const answer = await peerConn.createAnswer();
+            await peerConn.setLocalDescription(answer);
+            ws.send(JSON.stringify({ type: 'call_answer', receiverId: activeId, sdp: answer }));
+        }
+
+        // ИСПРАВЛЕНИЕ: Параметр isAudioOnly для запроса только микрофона
+        async function initRTC(isAudioOnly) {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: !isAudioOnly, audio: true });
+            
+            peerConn = new RTCPeerConnection(rtcConfig);
+            localStream.getTracks().forEach(t => peerConn.addTrack(t, localStream));
+            
+            peerConn.onicecandidate = e => {
+                if (e.candidate) ws.send(JSON.stringify({ type: 'ice_candidate', receiverId: activeId, candidate: e.candidate }));
+            };
+            peerConn.ontrack = e => {
+                document.getElementById('remote-video').srcObject = e.streams[0];
+            };
+        }
+
+        function showCallScreen(name, status, isIncoming) {
+            document.getElementById('call-screen').style.display = 'flex';
+            document.getElementById('call-name').innerText = name || "Собеседник";
+            document.getElementById('call-avatar-display').innerText = (name || "U")[0].toUpperCase();
+            document.getElementById('call-status').innerText = status;
+            document.getElementById('answer-btn').style.display = isIncoming ? 'flex' : 'none';
+        }
+
+        function endCall(notify = true) {
+            if (notify && activeId && ws) ws.send(JSON.stringify({ type: 'call_hangup', receiverId: activeId }));
+            if (peerConn) { peerConn.close(); peerConn = null; }
+            if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+            document.getElementById('call-screen').style.display = 'none';
+            document.getElementById('answer-btn').style.display = 'none';
+        }
+
+        // --- Запуск при загрузке ---
         window.onload = () => {
             const st = localStorage.getItem('m_token'), su = localStorage.getItem('m_user');
             if (st) { token = st; currentUser = JSON.parse(su); startApp(); }
