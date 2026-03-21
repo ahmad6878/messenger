@@ -121,6 +121,7 @@
 let currentUser=null,token=null,ws=null,activeId=null,activeName=null;
 let mediaRecorder=null,audioChunks=[],peerConn=null,localStream=null;
 let reconnectTimer=null,pendingOffer=null,callTargetId=null;
+let lastMsgId=0,pollTimer=null,pingTimer=null;
 
 const rtcConfig={iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -157,12 +158,26 @@ function startApp(){
     document.getElementById('my-name').innerText=currentUser.username;
     document.getElementById('settings-name').innerText=currentUser.username;
     document.getElementById('settings-avatar').innerText=currentUser.username[0].toUpperCase();
-    connectWS();loadChats();
+    connectWS();
+    loadChats();
+    startPing();
 }
 
 function openSettings(){document.getElementById('settings-modal').style.display='flex';}
 function closeSettings(){document.getElementById('settings-modal').style.display='none';}
 function logout(){localStorage.clear();location.reload();}
+
+// --- Ping каждые 25 секунд чтобы соединение не засыпало ---
+function startPing(){
+    clearInterval(pingTimer);
+    pingTimer=setInterval(()=>{
+        if(ws&&ws.readyState===WebSocket.OPEN){
+            ws.send(JSON.stringify({type:'ping'}));
+        } else {
+            connectWS();
+        }
+    },25000);
+}
 
 function connectWS(){
     if(ws&&(ws.readyState===WebSocket.CONNECTING||ws.readyState===WebSocket.OPEN))return;
@@ -175,9 +190,13 @@ function connectWS(){
     };
     ws.onmessage=async(e)=>{
         const d=JSON.parse(e.data);
+        if(d.type==='pong')return;
         if(d.type==='private_message'){
             const otherId=d.sender_id==currentUser.id?Number(d.receiver_id):Number(d.sender_id);
-            if(activeId&&otherId==activeId)addMsg(d);
+            if(activeId&&otherId==activeId){
+                // Проверяем что такого сообщения ещё нет на экране
+                if(d.id>lastMsgId){addMsg(d);lastMsgId=d.id;}
+            }
             loadChats();
         }
         if(d.type==='call_offer')handleOffer(d);
@@ -201,6 +220,25 @@ function sendWS(obj){
     if(!ws||ws.readyState!==WebSocket.OPEN){connectWS();return false;}
     ws.send(JSON.stringify(obj));return true;
 }
+
+// --- Polling: проверяем новые сообщения каждые 3 секунды через HTTP ---
+function startPolling(){
+    clearInterval(pollTimer);
+    if(!activeId)return;
+    pollTimer=setInterval(async()=>{
+        if(!activeId||!token)return;
+        try{
+            const res=await fetch(`/api/poll/${activeId}/${lastMsgId}`,{headers:{'Authorization':'Bearer '+token}});
+            const msgs=await res.json();
+            msgs.forEach(m=>{
+                if(m.id>lastMsgId){addMsg(m);lastMsgId=m.id;}
+            });
+            if(msgs.length>0)loadChats();
+        }catch(e){}
+    },3000);
+}
+
+function stopPolling(){clearInterval(pollTimer);pollTimer=null;}
 
 async function loadChats(){
     try{
@@ -239,7 +277,7 @@ async function searchUsers(){
 }
 
 async function openChat(id,name){
-    activeId=id;activeName=name;
+    activeId=id;activeName=name;lastMsgId=0;
     document.getElementById('chat-user-name').innerText=name;
     document.getElementById('chat-avatar').innerText=name[0].toUpperCase();
     document.getElementById('chat-area').classList.add('active');
@@ -251,14 +289,17 @@ async function openChat(id,name){
         const msgs=await res.json();
         const container=document.getElementById('messages');
         container.innerHTML='';
-        msgs.forEach(addMsg);scrollToBottom();
+        msgs.forEach(m=>{addMsg(m);if(m.id>lastMsgId)lastMsgId=m.id;});
+        scrollToBottom();
     }catch(e){}
     document.querySelectorAll('.chat-item').forEach(el=>{el.style.background=el.dataset.id==id?'#f0f7ff':'';});
+    startPolling();
 }
 
 function closeChat(){
     document.getElementById('chat-area').classList.remove('active');
     activeId=null;activeName=null;
+    stopPolling();
 }
 
 function addMsg(m){
@@ -409,7 +450,7 @@ window.onload=()=>{
     const st=localStorage.getItem('m_token'),su=localStorage.getItem('m_user');
     if(st&&su){token=st;currentUser=JSON.parse(su);startApp();}
     document.addEventListener('visibilitychange',()=>{
-        if(document.visibilityState==='visible'&&currentUser)connectWS();
+        if(document.visibilityState==='visible'&&currentUser){connectWS();if(activeId)startPolling();}
     });
 };
 </script>
@@ -417,8 +458,8 @@ window.onload=()=>{
 </html>
 ```
 
-После замены обоих файлов:
+После замены:
 ```
 git add .
-git commit -m "fix calls, hangup, media messages"
+git commit -m "add heartbeat ping and polling"
 git push

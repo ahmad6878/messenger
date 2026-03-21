@@ -45,6 +45,13 @@ const getRecentChats = db.prepare(`
     SELECT sender_id as contact_id, timestamp FROM messages WHERE receiver_id = ?
   ) GROUP BY contact_id ORDER BY last_time DESC
 `);
+const getNewMessages = db.prepare(`
+  SELECT m.*, u.username as sender_username
+  FROM messages m JOIN users u ON m.sender_id = u.id
+  WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?)
+  AND m.id > ?
+  ORDER BY m.timestamp ASC
+`);
 
 const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -126,6 +133,16 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (req.url.startsWith('/api/poll/')) {
+        const a = authenticate(req);
+        if (!a) { res.writeHead(401); res.end('[]'); return; }
+        const parts = req.url.split('/');
+        const otherId = parts[3];
+        const lastId = parseInt(parts[4]) || 0;
+        res.end(JSON.stringify(getNewMessages.all(a.userId, otherId, otherId, a.userId, lastId)));
+        return;
+    }
+
     if (req.url.startsWith('/api/user/')) {
         const a = authenticate(req);
         if (!a) { res.writeHead(401); res.end('{}'); return; }
@@ -157,11 +174,25 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 const clients = new Map();
 
+// Пинг всех клиентов каждые 30 секунд чтобы не усыпало соединение
+setInterval(() => {
+    wss.clients.forEach(ws => {
+        if (ws.isAlive === false) { ws.terminate(); return; }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000);
+
 wss.on('connection', (ws) => {
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+
     let uid = null;
     ws.on('message', (msg) => {
         try {
             const d = JSON.parse(msg);
+
+            if (d.type === 'ping') { ws.send(JSON.stringify({type:'pong'})); return; }
 
             if (d.type === 'auth') {
                 try {
