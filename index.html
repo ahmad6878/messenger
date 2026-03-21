@@ -33,7 +33,7 @@
         .msg.op { align-self: flex-start; background: #e9e9eb; color: black; border-bottom-left-radius: 5px; }
         .msg img { max-width: 100%; border-radius: 10px; display: block; margin-top: 4px; cursor: pointer; transition: opacity 0.15s; }
         .msg img:hover { opacity: 0.85; }
-        .msg video { max-width: 100%; border-radius: 10px; display: block; margin-top: 4px; max-height: 300px; cursor: pointer; }
+        .msg video { max-width: 100%; border-radius: 10px; display: block; margin-top: 4px; max-height: 300px; }
         .msg audio { max-width: 220px; height: 36px; display: block; margin-top: 4px; }
         .msg-time { font-size: 11px; opacity: 0.55; margin-top: 3px; text-align: right; }
         #input-panel { padding: 10px 12px; display: flex; align-items: center; gap: 8px; border-top: 1px solid #e5e5ea; background: white; }
@@ -153,6 +153,26 @@ const rtcConfig={iceServers:[
     {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
 ]};
 
+// Определяем лучший формат для записи звука
+function getBestAudioMime(){
+    const types=['audio/mp4','audio/aac','audio/webm;codecs=opus','audio/webm','audio/ogg'];
+    for(const t of types){ if(MediaRecorder.isTypeSupported(t)) return t; }
+    return '';
+}
+
+// Определяем лучший формат для видео
+function getBestVideoMime(){
+    const types=['video/mp4','video/webm;codecs=h264','video/webm;codecs=vp9','video/webm'];
+    for(const t of types){ if(MediaRecorder.isTypeSupported(t)) return t; }
+    return '';
+}
+
+function getExtFromMime(mime){
+    if(mime.includes('mp4')||mime.includes('aac'))return 'mp4';
+    if(mime.includes('ogg'))return 'ogg';
+    return 'webm';
+}
+
 function openViewer(url,type){
     const content=document.getElementById('media-viewer-content');
     const dl=document.getElementById('media-viewer-download');
@@ -160,7 +180,9 @@ function openViewer(url,type){
     if(type==='image'){
         const img=document.createElement('img');img.src=url;content.appendChild(img);
     }else{
-        const vid=document.createElement('video');vid.src=url;vid.controls=true;vid.autoplay=true;content.appendChild(vid);
+        const vid=document.createElement('video');
+        vid.src=url;vid.controls=true;vid.autoplay=true;vid.playsinline=true;
+        content.appendChild(vid);
     }
     dl.href=url;
     document.getElementById('media-viewer').classList.add('active');
@@ -360,9 +382,9 @@ function addMsg(m){
     if(type==='image'&&m.file_url){
         content=`<img src="${m.file_url}" onload="scrollToBottom()" loading="lazy" onclick="openViewer('${m.file_url}','image')">`;
     }else if(type==='video'&&m.file_url){
-        content=`<video src="${m.file_url}" onclick="openViewer('${m.file_url}','video')" onloadeddata="scrollToBottom()"></video>`;
+        content=`<video src="${m.file_url}" controls playsinline preload="metadata" onloadeddata="scrollToBottom()" onclick="openViewer('${m.file_url}','video')"></video>`;
     }else if(type==='audio'&&m.file_url){
-        content=`<audio controls src="${m.file_url}"></audio>`;
+        content=`<audio controls src="${m.file_url}" preload="metadata"></audio>`;
     }else{
         content=`<span>${escapeHtml(m.text||'')}</span>`;
     }
@@ -402,11 +424,15 @@ async function toggleRecord(){
     if(!mediaRecorder||mediaRecorder.state==='inactive'){
         try{
             const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-            mediaRecorder=new MediaRecorder(stream);audioChunks=[];
-            mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);
+            const mimeType=getBestAudioMime();
+            mediaRecorder=new MediaRecorder(stream,mimeType?{mimeType}:{});
+            audioChunks=[];
+            mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) audioChunks.push(e.data); };
             mediaRecorder.onstop=async()=>{
-                const blob=new Blob(audioChunks,{type:'audio/webm'});
-                const fd=new FormData();fd.append('file',new File([blob],'voice.webm'));
+                const mime=mediaRecorder.mimeType||'audio/webm';
+                const ext=getExtFromMime(mime);
+                const blob=new Blob(audioChunks,{type:mime});
+                const fd=new FormData();fd.append('file',new File([blob],`voice.${ext}`,{type:mime}));
                 try{
                     const res=await fetch('/api/upload',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
                     const d=await res.json();
@@ -414,9 +440,13 @@ async function toggleRecord(){
                 }catch(e){alert('Ошибка отправки голосового');}
                 stream.getTracks().forEach(t=>t.stop());
             };
-            mediaRecorder.start();btn.classList.add('recording');btn.innerText='⏹️';
+            mediaRecorder.start();
+            btn.classList.add('recording');btn.innerText='⏹️';
         }catch(e){alert('Нет доступа к микрофону!');}
-    }else{mediaRecorder.stop();btn.classList.remove('recording');btn.innerText='🎤';}
+    }else{
+        mediaRecorder.stop();
+        btn.classList.remove('recording');btn.innerText='🎤';
+    }
 }
 
 async function startCall(){
@@ -509,8 +539,8 @@ window.onload=()=>{
 </html>
 ```
 
-После замены обоих файлов:
+После замены:
 ```
 git add .
-git commit -m "postgresql, delete account, video support"
+git commit -m "fix safari audio and video"
 git push
