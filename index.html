@@ -179,7 +179,6 @@ let mediaRecorder=null,audioChunks=[],peerConn=null,localStream=null;
 let reconnectTimer=null,pendingOffer=null,callTargetId=null;
 let lastMsgId=0,pollTimer=null,pingTimer=null;
 let isMuted=false,isCameraOn=false,isLoud=false,videoTrack=null;
-let remoteAudioGain=null,audioCtx=null;
 
 const rtcConfig={iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -474,41 +473,39 @@ function toggleMute(){
 
 function toggleVolume(){
     isLoud=!isLoud;
+    const audio=document.getElementById('remote-audio');
+    audio.volume=isLoud?1.0:0.3;
     const btn=document.getElementById('volume-btn');
     btn.querySelector('span').innerText=isLoud?'🔊':'🔈';
     btn.classList.toggle('active',isLoud);
-    if(remoteAudioGain){
-        remoteAudioGain.gain.value=isLoud?3.0:1.0;
-    }else{
-        const audio=document.getElementById('remote-audio');
-        try{audio.volume=isLoud?1.0:0.5;}catch(e){}
-    }
 }
 
+// Камера — полностью пересоздаём поток при каждом включении
 async function toggleCamera(){
     const btn=document.getElementById('camera-btn');
     if(!isCameraOn){
         try{
             const videoStream=await navigator.mediaDevices.getUserMedia({
-                video:{facingMode:'user',width:{min:640,ideal:1280},height:{min:480,ideal:720},frameRate:{ideal:30}}
+                video:{facingMode:'user',width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}
             });
             videoTrack=videoStream.getVideoTracks()[0];
             isCameraOn=true;
+
             if(peerConn){
-                const senders=peerConn.getSenders();
-                const videoSender=senders.find(s=>s.track&&s.track.kind==='video'&&s.track.readyState==='live');
-                const deadSender=senders.find(s=>s.track&&s.track.kind==='video'&&s.track.readyState==='ended');
-                if(videoSender){
-                    await videoSender.replaceTrack(videoTrack);
-                }else if(deadSender){
-                    await deadSender.replaceTrack(videoTrack);
-                }else{
-                    peerConn.addTrack(videoTrack,localStream);
-                    const offer=await peerConn.createOffer();
-                    await peerConn.setLocalDescription(offer);
-                    sendWS({type:'call_offer_update',receiverId:callTargetId,sdp:offer});
-                }
+                // Удаляем все старые видео senders
+                peerConn.getSenders()
+                    .filter(s=>s.track&&s.track.kind==='video')
+                    .forEach(s=>peerConn.removeTrack(s));
+
+                // Добавляем свежий трек
+                peerConn.addTrack(videoTrack,localStream);
+
+                // Пересогласовываем
+                const offer=await peerConn.createOffer();
+                await peerConn.setLocalDescription(offer);
+                sendWS({type:'call_offer_update',receiverId:callTargetId,sdp:offer});
             }
+
             const localVid=document.getElementById('local-video-el');
             localVid.srcObject=new MediaStream([videoTrack]);
             localVid.style.display='block';
@@ -516,24 +513,29 @@ async function toggleCamera(){
             btn.classList.add('active');
         }catch(e){
             isCameraOn=false;
+            console.error('Camera error:',e);
             alert('Нет доступа к камере!');
         }
     }else{
         isCameraOn=false;
-        if(peerConn){
-            const videoSender=peerConn.getSenders().find(s=>s.track&&s.track.kind==='video');
-            if(videoSender){
-                try{
-                    const canvas=document.createElement('canvas');
-                    canvas.width=2;canvas.height=2;
-                    canvas.getContext('2d').fillRect(0,0,2,2);
-                    const blackTrack=canvas.captureStream(1).getVideoTracks()[0];
-                    await videoSender.replaceTrack(blackTrack);
-                    setTimeout(()=>blackTrack.stop(),300);
-                }catch(e){}
-            }
-        }
+
+        // Останавливаем трек
         if(videoTrack){videoTrack.stop();videoTrack=null;}
+
+        // Удаляем видео senders из peerConn
+        if(peerConn){
+            peerConn.getSenders()
+                .filter(s=>s.track&&s.track.kind==='video')
+                .forEach(s=>peerConn.removeTrack(s));
+
+            // Пересогласовываем чтобы собеседник знал что видео выключено
+            try{
+                const offer=await peerConn.createOffer();
+                await peerConn.setLocalDescription(offer);
+                sendWS({type:'call_offer_update',receiverId:callTargetId,sdp:offer});
+            }catch(e){}
+        }
+
         document.getElementById('local-video-el').style.display='none';
         document.getElementById('remote-video-el').style.display='none';
         document.getElementById('call-avatar-display').style.display='flex';
@@ -586,17 +588,22 @@ async function acceptCall(){
 
 async function initRTC(targetId){
     if(peerConn){peerConn.close();peerConn=null;}
-    if(audioCtx){try{audioCtx.close();}catch(e){}audioCtx=null;remoteAudioGain=null;}
+    // Получаем аудио поток
     localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
     peerConn=new RTCPeerConnection(rtcConfig);
-    localStream.getTracks().forEach(t=>peerConn.addTrack(t,localStream));
+    // Добавляем только аудио трек
+    localStream.getAudioTracks().forEach(t=>peerConn.addTrack(t,localStream));
+
     peerConn.onicecandidate=e=>{
         if(e.candidate)sendWS({type:'ice_candidate',receiverId:targetId,candidate:e.candidate});
     };
+
     peerConn.ontrack=e=>{
         if(e.track.kind==='video'){
             const remoteVid=document.getElementById('remote-video-el');
-            remoteVid.srcObject=e.streams[0];
+            if(!remoteVid.srcObject||remoteVid.srcObject!==e.streams[0]){
+                remoteVid.srcObject=e.streams[0];
+            }
             remoteVid.style.display='block';
             document.getElementById('call-avatar-display').style.display='none';
             e.track.onmute=()=>{
@@ -608,20 +615,14 @@ async function initRTC(targetId){
                 document.getElementById('call-avatar-display').style.display='none';
             };
         }else{
-            try{
-                audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-                const source=audioCtx.createMediaStreamSource(e.streams[0]);
-                remoteAudioGain=audioCtx.createGain();
-                remoteAudioGain.gain.value=isLoud?3.0:1.0;
-                source.connect(remoteAudioGain);
-                remoteAudioGain.connect(audioCtx.destination);
-            }catch(err){
-                const audio=document.getElementById('remote-audio');
-                audio.srcObject=e.streams[0];
-                audio.play().catch(()=>{});
-            }
+            // Аудио — просто подключаем к элементу
+            const audio=document.getElementById('remote-audio');
+            audio.srcObject=e.streams[0];
+            audio.volume=isLoud?1.0:0.3;
+            audio.play().catch(()=>{});
         }
     };
+
     peerConn.onconnectionstatechange=()=>{
         if(peerConn&&peerConn.connectionState==='connected')document.getElementById('call-status').innerText='Разговор';
         if(peerConn&&(peerConn.connectionState==='failed'||peerConn.connectionState==='disconnected'))endCall(false);
@@ -651,7 +652,6 @@ function endCall(notify=true){
     if(videoTrack){videoTrack.stop();videoTrack=null;}
     if(peerConn){peerConn.close();peerConn=null;}
     if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null;}
-    if(audioCtx){try{audioCtx.close();}catch(e){}audioCtx=null;remoteAudioGain=null;}
     pendingOffer=null;callTargetId=null;
     isMuted=false;isCameraOn=false;isLoud=false;
     document.getElementById('call-screen').style.display='none';
