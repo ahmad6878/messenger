@@ -474,7 +474,7 @@ async function toggleCamera(){
     if(isCameraOn){
         try{
             const videoStream=await navigator.mediaDevices.getUserMedia({
-                video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}}
+                video:{facingMode:'user',width:{min:640,ideal:1280,max:1920},height:{min:480,ideal:720,max:1080},frameRate:{ideal:30}}
             });
             videoTrack=videoStream.getVideoTracks()[0];
             if(peerConn){
@@ -498,7 +498,18 @@ async function toggleCamera(){
     }else{
         if(peerConn){
             const sender=peerConn.getSenders().find(s=>s.track&&s.track.kind==='video');
-            if(sender)await sender.replaceTrack(null);
+            if(sender){
+                try{
+                    const canvas=document.createElement('canvas');
+                    canvas.width=2;canvas.height=2;
+                    const ctx=canvas.getContext('2d');
+                    ctx.fillStyle='black';ctx.fillRect(0,0,2,2);
+                    const blackStream=canvas.captureStream(1);
+                    const blackTrack=blackStream.getVideoTracks()[0];
+                    await sender.replaceTrack(blackTrack);
+                    setTimeout(()=>blackTrack.stop(),500);
+                }catch(e){}
+            }
         }
         if(videoTrack){videoTrack.stop();videoTrack=null;}
         document.getElementById('local-video-el').style.display='none';
@@ -565,9 +576,13 @@ async function initRTC(targetId){
             remoteVid.srcObject=e.streams[0];
             remoteVid.style.display='block';
             document.getElementById('call-avatar-display').style.display='none';
-            e.track.onended=()=>{
+            e.track.onmute=()=>{
                 remoteVid.style.display='none';
                 document.getElementById('call-avatar-display').style.display='flex';
+            };
+            e.track.onunmute=()=>{
+                remoteVid.style.display='block';
+                document.getElementById('call-avatar-display').style.display='none';
             };
         }else{
             const audio=document.getElementById('remote-audio');
