@@ -46,40 +46,21 @@
         .btn-danger { background: #ff3b30; width: 100%; margin-top: 14px; padding: 13px; border-radius: 12px; border: none; color: white; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn-danger-soft { background: rgba(255,59,48,0.12); color: #ff3b30; width: 100%; margin-top: 8px; padding: 13px; border-radius: 12px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn-close { margin-top: 12px; color: var(--primary); cursor: pointer; font-size: 15px; }
-
-        /* Экран звонка */
         #call-screen { position: fixed; inset: 0; background: #1c1c1e; z-index: 4000; display: none; flex-direction: column; align-items: center; justify-content: center; color: white; }
-
-        /* Видео собеседника — на телефоне полный экран, на десктопе как телефон по центру */
-        #remote-video-el {
-            display: none;
-            object-fit: cover;
-            border-radius: 28px;
-            z-index: 4050;
-        }
+        #remote-video-el { display: none; object-fit: cover; border-radius: 28px; z-index: 4050; }
         @media (max-width: 768px) {
             #remote-video-el { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 0; }
         }
         @media (min-width: 769px) {
             #remote-video-el { width: 340px; height: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
         }
-
-        /* Своё видео — маленькое в углу */
-        #local-video-el {
-            position: absolute;
-            object-fit: cover;
-            border-radius: 12px;
-            display: none;
-            border: 2px solid rgba(255,255,255,0.3);
-            z-index: 4100;
-        }
+        #local-video-el { position: absolute; object-fit: cover; border-radius: 12px; display: none; border: 2px solid rgba(255,255,255,0.3); z-index: 4100; }
         @media (max-width: 768px) {
             #local-video-el { top: 20px; right: 20px; width: 90px; height: 130px; }
         }
         @media (min-width: 769px) {
             #local-video-el { bottom: 140px; right: calc(50% - 220px); width: 90px; height: 130px; }
         }
-
         .call-avatar { width: 110px; height: 110px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; margin-bottom: 24px; z-index: 4060; }
         #call-status { font-size: 16px; color: #aaaab0; margin-bottom: 6px; z-index: 4060; }
         #call-name { font-size: 26px; font-weight: 600; z-index: 4060; }
@@ -92,7 +73,6 @@
         .call-btn-dark { background: rgba(255,255,255,0.2); }
         .call-btn-dark.active { background: white; }
         .call-btn-dark.active span { filter: invert(1); }
-
         #conn-status { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); background: #ff3b30; color: white; padding: 3px 14px; border-radius: 20px; font-size: 12px; display: none; z-index: 9999; }
         #media-viewer { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 9000; justify-content: center; align-items: center; }
         #media-viewer.active { display: flex; }
@@ -199,6 +179,7 @@ let mediaRecorder=null,audioChunks=[],peerConn=null,localStream=null;
 let reconnectTimer=null,pendingOffer=null,callTargetId=null;
 let lastMsgId=0,pollTimer=null,pingTimer=null;
 let isMuted=false,isCameraOn=false,isLoud=false,videoTrack=null;
+let remoteAudioGain=null,audioCtx=null;
 
 const rtcConfig={iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -493,27 +474,34 @@ function toggleMute(){
 
 function toggleVolume(){
     isLoud=!isLoud;
-    const audio=document.getElementById('remote-audio');
-    audio.volume=isLoud?1.0:0.3;
     const btn=document.getElementById('volume-btn');
     btn.querySelector('span').innerText=isLoud?'🔊':'🔈';
     btn.classList.toggle('active',isLoud);
+    if(remoteAudioGain){
+        remoteAudioGain.gain.value=isLoud?3.0:1.0;
+    }else{
+        const audio=document.getElementById('remote-audio');
+        try{audio.volume=isLoud?1.0:0.5;}catch(e){}
+    }
 }
 
 async function toggleCamera(){
     const btn=document.getElementById('camera-btn');
     if(!isCameraOn){
-        // Включаем камеру
         try{
             const videoStream=await navigator.mediaDevices.getUserMedia({
-                video:{facingMode:'user',width:{min:640,ideal:1280,max:1920},height:{min:480,ideal:720,max:1080},frameRate:{ideal:30}}
+                video:{facingMode:'user',width:{min:640,ideal:1280},height:{min:480,ideal:720},frameRate:{ideal:30}}
             });
             videoTrack=videoStream.getVideoTracks()[0];
             isCameraOn=true;
             if(peerConn){
-                const sender=peerConn.getSenders().find(s=>s.track&&s.track.kind==='video');
-                if(sender){
-                    await sender.replaceTrack(videoTrack);
+                const senders=peerConn.getSenders();
+                const videoSender=senders.find(s=>s.track&&s.track.kind==='video'&&s.track.readyState==='live');
+                const deadSender=senders.find(s=>s.track&&s.track.kind==='video'&&s.track.readyState==='ended');
+                if(videoSender){
+                    await videoSender.replaceTrack(videoTrack);
+                }else if(deadSender){
+                    await deadSender.replaceTrack(videoTrack);
                 }else{
                     peerConn.addTrack(videoTrack,localStream);
                     const offer=await peerConn.createOffer();
@@ -521,43 +509,31 @@ async function toggleCamera(){
                     sendWS({type:'call_offer_update',receiverId:callTargetId,sdp:offer});
                 }
             }
-            localStream.addTrack(videoTrack);
             const localVid=document.getElementById('local-video-el');
             localVid.srcObject=new MediaStream([videoTrack]);
             localVid.style.display='block';
             btn.querySelector('span').innerText='📹';
             btn.classList.add('active');
-
-            // Когда трек заканчивается — сбрасываем состояние
-            videoTrack.onended=()=>{
-                isCameraOn=false;
-                videoTrack=null;
-                document.getElementById('local-video-el').style.display='none';
-                btn.querySelector('span').innerText='📷';
-                btn.classList.remove('active');
-            };
-        }catch(e){alert('Нет доступа к камере!');}
+        }catch(e){
+            isCameraOn=false;
+            alert('Нет доступа к камере!');
+        }
     }else{
-        // Выключаем камеру
         isCameraOn=false;
         if(peerConn){
-            const sender=peerConn.getSenders().find(s=>s.track&&s.track.kind==='video');
-            if(sender){
+            const videoSender=peerConn.getSenders().find(s=>s.track&&s.track.kind==='video');
+            if(videoSender){
                 try{
                     const canvas=document.createElement('canvas');
                     canvas.width=2;canvas.height=2;
-                    const ctx=canvas.getContext('2d');
-                    ctx.fillStyle='black';ctx.fillRect(0,0,2,2);
-                    const blackStream=canvas.captureStream(1);
-                    const blackTrack=blackStream.getVideoTracks()[0];
-                    await sender.replaceTrack(blackTrack);
-                    setTimeout(()=>blackTrack.stop(),500);
+                    canvas.getContext('2d').fillRect(0,0,2,2);
+                    const blackTrack=canvas.captureStream(1).getVideoTracks()[0];
+                    await videoSender.replaceTrack(blackTrack);
+                    setTimeout(()=>blackTrack.stop(),300);
                 }catch(e){}
             }
         }
         if(videoTrack){videoTrack.stop();videoTrack=null;}
-        // Убираем трек из localStream
-        localStream.getVideoTracks().forEach(t=>localStream.removeTrack(t));
         document.getElementById('local-video-el').style.display='none';
         document.getElementById('remote-video-el').style.display='none';
         document.getElementById('call-avatar-display').style.display='flex';
@@ -610,6 +586,7 @@ async function acceptCall(){
 
 async function initRTC(targetId){
     if(peerConn){peerConn.close();peerConn=null;}
+    if(audioCtx){try{audioCtx.close();}catch(e){}audioCtx=null;remoteAudioGain=null;}
     localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
     peerConn=new RTCPeerConnection(rtcConfig);
     localStream.getTracks().forEach(t=>peerConn.addTrack(t,localStream));
@@ -631,10 +608,18 @@ async function initRTC(targetId){
                 document.getElementById('call-avatar-display').style.display='none';
             };
         }else{
-            const audio=document.getElementById('remote-audio');
-            audio.srcObject=e.streams[0];
-            audio.volume=isLoud?1.0:0.3;
-            audio.play().catch(()=>{});
+            try{
+                audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+                const source=audioCtx.createMediaStreamSource(e.streams[0]);
+                remoteAudioGain=audioCtx.createGain();
+                remoteAudioGain.gain.value=isLoud?3.0:1.0;
+                source.connect(remoteAudioGain);
+                remoteAudioGain.connect(audioCtx.destination);
+            }catch(err){
+                const audio=document.getElementById('remote-audio');
+                audio.srcObject=e.streams[0];
+                audio.play().catch(()=>{});
+            }
         }
     };
     peerConn.onconnectionstatechange=()=>{
@@ -666,6 +651,7 @@ function endCall(notify=true){
     if(videoTrack){videoTrack.stop();videoTrack=null;}
     if(peerConn){peerConn.close();peerConn=null;}
     if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null;}
+    if(audioCtx){try{audioCtx.close();}catch(e){}audioCtx=null;remoteAudioGain=null;}
     pendingOffer=null;callTargetId=null;
     isMuted=false;isCameraOn=false;isLoud=false;
     document.getElementById('call-screen').style.display='none';
@@ -673,6 +659,7 @@ function endCall(notify=true){
     document.getElementById('call-status').innerText='Звонок...';
     document.getElementById('remote-video-el').style.display='none';
     document.getElementById('local-video-el').style.display='none';
+    document.getElementById('remote-audio').srcObject=null;
 }
 
 window.onload=()=>{
