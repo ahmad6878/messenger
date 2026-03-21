@@ -44,6 +44,7 @@
         #settings-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 3000; justify-content: center; align-items: center; }
         .settings-content { background: white; padding: 30px 24px; border-radius: 18px; width: 300px; text-align: center; }
         .btn-danger { background: #ff3b30; width: 100%; margin-top: 14px; padding: 13px; border-radius: 12px; border: none; color: white; font-size: 16px; font-weight: 600; cursor: pointer; }
+        .btn-danger-soft { background: rgba(255,59,48,0.12); color: #ff3b30; width: 100%; margin-top: 8px; padding: 13px; border-radius: 12px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn-close { margin-top: 12px; color: var(--primary); cursor: pointer; font-size: 15px; }
         #call-screen { position: fixed; inset: 0; background: #1c1c1e; z-index: 4000; display: none; flex-direction: column; align-items: center; justify-content: center; color: white; }
         .call-avatar { width: 110px; height: 110px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; margin-bottom: 24px; }
@@ -54,15 +55,12 @@
         .hangup { background: #ff3b30; }
         .answer { background: #34c759; }
         #conn-status { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); background: #ff3b30; color: white; padding: 3px 14px; border-radius: 20px; font-size: 12px; display: none; z-index: 9999; }
-
-        /* Просмотр медиа на весь экран */
         #media-viewer { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 9000; justify-content: center; align-items: center; }
         #media-viewer.active { display: flex; }
         #media-viewer img { max-width: 95vw; max-height: 90vh; border-radius: 8px; object-fit: contain; }
         #media-viewer video { max-width: 95vw; max-height: 90vh; border-radius: 8px; outline: none; }
         #media-viewer-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 36px; cursor: pointer; z-index: 9001; line-height: 1; }
         #media-viewer-download { position: absolute; bottom: 24px; color: white; font-size: 14px; background: rgba(255,255,255,0.15); padding: 8px 20px; border-radius: 20px; cursor: pointer; text-decoration: none; }
-
         @media (max-width: 768px) {
             #sidebar { width: 100%; }
             #chat-area { position: fixed; inset: 0; width: 100%; z-index: 10; display: none; flex-direction: column; }
@@ -75,7 +73,6 @@
 <body>
 <div id="conn-status">Нет соединения. Переподключение...</div>
 
-<!-- Просмотр медиа -->
 <div id="media-viewer">
     <span id="media-viewer-close" onclick="closeViewer()">✕</span>
     <div id="media-viewer-content"></div>
@@ -90,6 +87,7 @@
     <button onclick="auth('login')">Войти</button>
     <button class="link-btn" onclick="auth('register')">Создать аккаунт</button>
 </div>
+
 <div id="main-app">
     <div id="sidebar">
         <div id="sidebar-header">
@@ -120,14 +118,17 @@
         </div>
     </div>
 </div>
+
 <div id="settings-modal">
     <div class="settings-content">
         <div class="avatar" id="settings-avatar" style="width:70px;height:70px;font-size:30px;margin:0 auto 12px;">U</div>
         <h2 id="settings-name" style="margin-bottom:20px;"></h2>
         <button class="btn-danger" onclick="logout()">Выйти из аккаунта</button>
+        <button class="btn-danger-soft" onclick="deleteAccount()">Удалить аккаунт</button>
         <div class="btn-close" onclick="closeSettings()">Закрыть</div>
     </div>
 </div>
+
 <div id="call-screen">
     <audio id="remote-audio" autoplay playsinline></audio>
     <div class="call-avatar" id="call-avatar-display">U</div>
@@ -138,6 +139,7 @@
         <div class="call-btn hangup" onclick="endCall(true)">🛑</div>
     </div>
 </div>
+
 <script>
 let currentUser=null,token=null,ws=null,activeId=null,activeName=null;
 let mediaRecorder=null,audioChunks=[],peerConn=null,localStream=null;
@@ -151,19 +153,14 @@ const rtcConfig={iceServers:[
     {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
 ]};
 
-// --- Просмотр медиа ---
-function openViewer(url, type){
+function openViewer(url,type){
     const content=document.getElementById('media-viewer-content');
     const dl=document.getElementById('media-viewer-download');
     content.innerHTML='';
     if(type==='image'){
-        const img=document.createElement('img');
-        img.src=url;
-        content.appendChild(img);
-    } else {
-        const vid=document.createElement('video');
-        vid.src=url;vid.controls=true;vid.autoplay=true;
-        content.appendChild(vid);
+        const img=document.createElement('img');img.src=url;content.appendChild(img);
+    }else{
+        const vid=document.createElement('video');vid.src=url;vid.controls=true;vid.autoplay=true;content.appendChild(vid);
     }
     dl.href=url;
     document.getElementById('media-viewer').classList.add('active');
@@ -172,12 +169,10 @@ function openViewer(url, type){
 function closeViewer(){
     const v=document.getElementById('media-viewer');
     v.classList.remove('active');
-    // Останавливаем видео если играло
     const vid=v.querySelector('video');
     if(vid){vid.pause();vid.src='';}
 }
 
-// Закрыть по клику на фон
 document.getElementById('media-viewer').addEventListener('click',function(e){
     if(e.target===this)closeViewer();
 });
@@ -196,9 +191,9 @@ async function auth(type){
             localStorage.setItem('m_token',token);
             localStorage.setItem('m_user',JSON.stringify(currentUser));
             startApp();
-        } else if(type==='register'&&d.success){
+        }else if(type==='register'&&d.success){
             err.style.color='#34c759';err.innerText='Аккаунт создан! Войдите.';
-        } else {
+        }else{
             err.innerText=d.error||'Ошибка';
         }
     }catch(e){err.innerText='Нет связи с сервером';}
@@ -217,12 +212,20 @@ function openSettings(){document.getElementById('settings-modal').style.display=
 function closeSettings(){document.getElementById('settings-modal').style.display='none';}
 function logout(){localStorage.clear();location.reload();}
 
+async function deleteAccount(){
+    if(!confirm('Удалить аккаунт? Все данные будут удалены навсегда!'))return;
+    try{
+        await fetch('/api/delete-account',{method:'DELETE',headers:{'Authorization':'Bearer '+token}});
+        localStorage.clear();location.reload();
+    }catch(e){alert('Ошибка удаления аккаунта');}
+}
+
 function startPing(){
     clearInterval(pingTimer);
     pingTimer=setInterval(()=>{
         if(ws&&ws.readyState===WebSocket.OPEN){
             ws.send(JSON.stringify({type:'ping'}));
-        } else {
+        }else{
             connectWS();
         }
     },25000);
@@ -356,11 +359,11 @@ function addMsg(m){
     let content='';
     if(type==='image'&&m.file_url){
         content=`<img src="${m.file_url}" onload="scrollToBottom()" loading="lazy" onclick="openViewer('${m.file_url}','image')">`;
-    } else if(type==='video'&&m.file_url){
+    }else if(type==='video'&&m.file_url){
         content=`<video src="${m.file_url}" onclick="openViewer('${m.file_url}','video')" onloadeddata="scrollToBottom()"></video>`;
-    } else if(type==='audio'&&m.file_url){
+    }else if(type==='audio'&&m.file_url){
         content=`<audio controls src="${m.file_url}"></audio>`;
-    } else {
+    }else{
         content=`<span>${escapeHtml(m.text||'')}</span>`;
     }
     const time=m.timestamp?new Date(m.timestamp).toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}):'';
@@ -506,8 +509,8 @@ window.onload=()=>{
 </html>
 ```
 
-После замены:
+После замены обоих файлов:
 ```
 git add .
-git commit -m "add video and media viewer"
+git commit -m "postgresql, delete account, video support"
 git push

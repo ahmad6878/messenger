@@ -2,13 +2,17 @@ const http = require('http');
 const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
-const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
+const { Pool } = require('pg');
 
 const SECRET_KEY = 'my_super_secret_messenger_key';
-const db = new Database('messenger.db');
+
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
 
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -19,41 +23,27 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT);
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER, receiver_id INTEGER,
-    text TEXT, type TEXT DEFAULT 'text', file_url TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+async function initDB() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS messages (
+            id SERIAL PRIMARY KEY,
+            sender_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            receiver_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            text TEXT DEFAULT '',
+            type TEXT DEFAULT 'text',
+            file_url TEXT,
+            timestamp TIMESTAMPTZ DEFAULT NOW()
+        );
+    `);
+    console.log('✅ База данных готова');
+}
 
-const insertUser = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)');
-const getUserByUsername = db.prepare('SELECT * FROM users WHERE username = ?');
-const getUserById = db.prepare('SELECT id, username FROM users WHERE id = ?');
-const searchUsersQuery = db.prepare('SELECT id, username FROM users WHERE username LIKE ? AND id != ? LIMIT 20');
-const insertMessage = db.prepare('INSERT INTO messages (sender_id, receiver_id, text, type, file_url) VALUES (?, ?, ?, ?, ?)');
-const getChatHistory = db.prepare(`
-  SELECT m.*, u.username as sender_username
-  FROM messages m JOIN users u ON m.sender_id = u.id
-  WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?)
-  ORDER BY m.timestamp ASC
-`);
-const getRecentChats = db.prepare(`
-  SELECT contact_id, MAX(timestamp) as last_time FROM (
-    SELECT receiver_id as contact_id, timestamp FROM messages WHERE sender_id = ?
-    UNION ALL
-    SELECT sender_id as contact_id, timestamp FROM messages WHERE receiver_id = ?
-  ) GROUP BY contact_id ORDER BY last_time DESC
-`);
-const getNewMessages = db.prepare(`
-  SELECT m.*, u.username as sender_username
-  FROM messages m JOIN users u ON m.sender_id = u.id
-  WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?)
-  AND m.id > ?
-  ORDER BY m.timestamp ASC
-`);
-
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
 
@@ -74,11 +64,11 @@ const server = http.createServer((req, res) => {
 
     if (req.url === '/api/register' && req.method === 'POST') {
         let b = ''; req.on('data', c => b += c);
-        req.on('end', () => {
+        req.on('end', async () => {
             try {
                 const {username, password} = JSON.parse(b);
                 if (!username || !password) { res.end(JSON.stringify({success:false, error:'Заполните все поля'})); return; }
-                insertUser.run(username, bcrypt.hashSync(password, 10));
+                await pool.query('INSERT INTO users (username, password) VALUES ($1, $2)', [username, bcrypt.hashSync(password, 10)]);
                 res.end(JSON.stringify({success:true}));
             } catch(e) {
                 res.end(JSON.stringify({success:false, error:'Пользователь уже существует'}));
@@ -89,10 +79,11 @@ const server = http.createServer((req, res) => {
 
     if (req.url === '/api/login' && req.method === 'POST') {
         let b = ''; req.on('data', c => b += c);
-        req.on('end', () => {
+        req.on('end', async () => {
             try {
                 const {username, password} = JSON.parse(b);
-                const u = getUserByUsername.get(username);
+                const r = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+                const u = r.rows[0];
                 if (u && bcrypt.compareSync(password, u.password)) {
                     res.end(JSON.stringify({
                         success: true,
@@ -109,19 +100,42 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (req.url === '/api/delete-account' && req.method === 'DELETE') {
+        const a = authenticate(req);
+        if (!a) { res.writeHead(401); res.end(JSON.stringify({error:'Unauthorized'})); return; }
+        try {
+            await pool.query('DELETE FROM users WHERE id = $1', [a.userId]);
+            res.end(JSON.stringify({success:true}));
+        } catch(e) {
+            res.end(JSON.stringify({success:false, error:'Ошибка удаления'}));
+        }
+        return;
+    }
+
     if (req.url.startsWith('/api/search')) {
         const a = authenticate(req);
         if (!a) { res.writeHead(401); res.end('[]'); return; }
         const q = new URL(req.url, `http://${req.headers.host}`).searchParams.get('q') || '';
-        res.end(JSON.stringify(searchUsersQuery.all(`%${q}%`, a.userId)));
+        const r = await pool.query('SELECT id, username FROM users WHERE username ILIKE $1 AND id != $2 LIMIT 20', [`%${q}%`, a.userId]);
+        res.end(JSON.stringify(r.rows));
         return;
     }
 
     if (req.url === '/api/chats') {
         const a = authenticate(req);
         if (!a) { res.writeHead(401); res.end('[]'); return; }
-        const chats = getRecentChats.all(a.userId, a.userId).map(r => getUserById.get(r.contact_id)).filter(Boolean);
-        res.end(JSON.stringify(chats));
+        const r = await pool.query(`
+            SELECT contact_id, MAX(last_time) as last_time FROM (
+                SELECT receiver_id as contact_id, MAX(timestamp) as last_time FROM messages WHERE sender_id = $1 GROUP BY receiver_id
+                UNION ALL
+                SELECT sender_id as contact_id, MAX(timestamp) as last_time FROM messages WHERE receiver_id = $1 GROUP BY sender_id
+            ) t GROUP BY contact_id ORDER BY last_time DESC
+        `, [a.userId]);
+        const chats = await Promise.all(r.rows.map(async row => {
+            const u = await pool.query('SELECT id, username FROM users WHERE id = $1', [row.contact_id]);
+            return u.rows[0];
+        }));
+        res.end(JSON.stringify(chats.filter(Boolean)));
         return;
     }
 
@@ -129,7 +143,13 @@ const server = http.createServer((req, res) => {
         const a = authenticate(req);
         if (!a) { res.writeHead(401); res.end('[]'); return; }
         const otherId = req.url.split('/').pop();
-        res.end(JSON.stringify(getChatHistory.all(a.userId, otherId, otherId, a.userId)));
+        const r = await pool.query(`
+            SELECT m.*, u.username as sender_username FROM messages m
+            JOIN users u ON m.sender_id = u.id
+            WHERE (m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1)
+            ORDER BY m.timestamp ASC
+        `, [a.userId, otherId]);
+        res.end(JSON.stringify(r.rows));
         return;
     }
 
@@ -139,7 +159,14 @@ const server = http.createServer((req, res) => {
         const parts = req.url.split('/');
         const otherId = parts[3];
         const lastId = parseInt(parts[4]) || 0;
-        res.end(JSON.stringify(getNewMessages.all(a.userId, otherId, otherId, a.userId, lastId)));
+        const r = await pool.query(`
+            SELECT m.*, u.username as sender_username FROM messages m
+            JOIN users u ON m.sender_id = u.id
+            WHERE ((m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1))
+            AND m.id > $3
+            ORDER BY m.timestamp ASC
+        `, [a.userId, otherId, lastId]);
+        res.end(JSON.stringify(r.rows));
         return;
     }
 
@@ -147,8 +174,8 @@ const server = http.createServer((req, res) => {
         const a = authenticate(req);
         if (!a) { res.writeHead(401); res.end('{}'); return; }
         const userId = req.url.split('/').pop();
-        const user = getUserById.get(parseInt(userId));
-        res.end(JSON.stringify(user || {}));
+        const r = await pool.query('SELECT id, username FROM users WHERE id = $1', [parseInt(userId)]);
+        res.end(JSON.stringify(r.rows[0] || {}));
         return;
     }
 
@@ -174,7 +201,6 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 const clients = new Map();
 
-// Пинг всех клиентов каждые 30 секунд чтобы не усыпало соединение
 setInterval(() => {
     wss.clients.forEach(ws => {
         if (ws.isAlive === false) { ws.terminate(); return; }
@@ -186,14 +212,11 @@ setInterval(() => {
 wss.on('connection', (ws) => {
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
-
     let uid = null;
-    ws.on('message', (msg) => {
+    ws.on('message', async (msg) => {
         try {
             const d = JSON.parse(msg);
-
             if (d.type === 'ping') { ws.send(JSON.stringify({type:'pong'})); return; }
-
             if (d.type === 'auth') {
                 try {
                     uid = jwt.verify(d.token, SECRET_KEY).userId;
@@ -201,29 +224,29 @@ wss.on('connection', (ws) => {
                 } catch(e) { ws.close(); }
                 return;
             }
-
             if (!uid) return;
-
             if (d.type === 'private_message') {
-                const r = insertMessage.run(uid, d.receiverId, d.text || '', d.msgType || 'text', d.fileUrl || null);
-                const sender = getUserById.get(uid);
+                const r = await pool.query(
+                    'INSERT INTO messages (sender_id, receiver_id, text, type, file_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+                    [uid, d.receiverId, d.text || '', d.msgType || 'text', d.fileUrl || null]
+                );
+                const sender = await pool.query('SELECT id, username FROM users WHERE id = $1', [uid]);
                 const obj = {
                     type: 'private_message',
-                    id: r.lastInsertRowid,
+                    id: r.rows[0].id,
                     sender_id: uid,
                     receiver_id: Number(d.receiverId),
                     text: d.text || '',
                     msgType: d.msgType || 'text',
                     file_url: d.fileUrl || null,
-                    sender_username: sender ? sender.username : '',
-                    timestamp: new Date().toISOString()
+                    sender_username: sender.rows[0] ? sender.rows[0].username : '',
+                    timestamp: r.rows[0].timestamp
                 };
                 const target = clients.get(Number(d.receiverId));
                 if (target && target.readyState === WebSocket.OPEN) target.send(JSON.stringify(obj));
                 ws.send(JSON.stringify(obj));
                 return;
             }
-
             if (d.receiverId) {
                 const target = clients.get(Number(d.receiverId));
                 if (target && target.readyState === WebSocket.OPEN) {
@@ -236,4 +259,6 @@ wss.on('connection', (ws) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`✅ Сервер запущен на http://localhost:${PORT}`));
+initDB().then(() => {
+    server.listen(PORT, () => console.log(`✅ Сервер запущен на http://localhost:${PORT}`));
+});
