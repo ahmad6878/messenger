@@ -31,7 +31,9 @@
         .msg { max-width: 72%; padding: 9px 13px; border-radius: 18px; font-size: 15px; line-height: 1.4; word-wrap: break-word; }
         .msg.me { align-self: flex-end; background: var(--primary); color: white; border-bottom-right-radius: 5px; }
         .msg.op { align-self: flex-start; background: #e9e9eb; color: black; border-bottom-left-radius: 5px; }
-        .msg img { max-width: 100%; border-radius: 10px; display: block; margin-top: 4px; }
+        .msg img { max-width: 100%; border-radius: 10px; display: block; margin-top: 4px; cursor: pointer; transition: opacity 0.15s; }
+        .msg img:hover { opacity: 0.85; }
+        .msg video { max-width: 100%; border-radius: 10px; display: block; margin-top: 4px; max-height: 300px; cursor: pointer; }
         .msg audio { max-width: 220px; height: 36px; display: block; margin-top: 4px; }
         .msg-time { font-size: 11px; opacity: 0.55; margin-top: 3px; text-align: right; }
         #input-panel { padding: 10px 12px; display: flex; align-items: center; gap: 8px; border-top: 1px solid #e5e5ea; background: white; }
@@ -52,6 +54,15 @@
         .hangup { background: #ff3b30; }
         .answer { background: #34c759; }
         #conn-status { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); background: #ff3b30; color: white; padding: 3px 14px; border-radius: 20px; font-size: 12px; display: none; z-index: 9999; }
+
+        /* Просмотр медиа на весь экран */
+        #media-viewer { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 9000; justify-content: center; align-items: center; }
+        #media-viewer.active { display: flex; }
+        #media-viewer img { max-width: 95vw; max-height: 90vh; border-radius: 8px; object-fit: contain; }
+        #media-viewer video { max-width: 95vw; max-height: 90vh; border-radius: 8px; outline: none; }
+        #media-viewer-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 36px; cursor: pointer; z-index: 9001; line-height: 1; }
+        #media-viewer-download { position: absolute; bottom: 24px; color: white; font-size: 14px; background: rgba(255,255,255,0.15); padding: 8px 20px; border-radius: 20px; cursor: pointer; text-decoration: none; }
+
         @media (max-width: 768px) {
             #sidebar { width: 100%; }
             #chat-area { position: fixed; inset: 0; width: 100%; z-index: 10; display: none; flex-direction: column; }
@@ -63,6 +74,14 @@
 </head>
 <body>
 <div id="conn-status">Нет соединения. Переподключение...</div>
+
+<!-- Просмотр медиа -->
+<div id="media-viewer">
+    <span id="media-viewer-close" onclick="closeViewer()">✕</span>
+    <div id="media-viewer-content"></div>
+    <a id="media-viewer-download" download>⬇ Сохранить</a>
+</div>
+
 <div id="auth-screen">
     <h2>Messenger</h2>
     <input type="text" id="username" placeholder="Логин" autocomplete="username">
@@ -92,7 +111,9 @@
         <div id="messages"></div>
         <div id="no-chat">Выберите чат слева</div>
         <div id="input-panel" style="display:none;">
-            <label class="icon-btn">📷<input type="file" hidden id="file-input" accept="image/*" onchange="sendFile(this)"></label>
+            <label class="icon-btn" title="Фото или видео">
+                📷<input type="file" hidden id="file-input" accept="image/*,video/*" onchange="sendFile(this)">
+            </label>
             <textarea id="msg-input" placeholder="Сообщение..." rows="1" onkeypress="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendText();}"></textarea>
             <span id="record-btn" class="icon-btn" onclick="toggleRecord()">🎤</span>
             <button id="send-btn" onclick="sendText()">↑</button>
@@ -130,6 +151,37 @@ const rtcConfig={iceServers:[
     {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
 ]};
 
+// --- Просмотр медиа ---
+function openViewer(url, type){
+    const content=document.getElementById('media-viewer-content');
+    const dl=document.getElementById('media-viewer-download');
+    content.innerHTML='';
+    if(type==='image'){
+        const img=document.createElement('img');
+        img.src=url;
+        content.appendChild(img);
+    } else {
+        const vid=document.createElement('video');
+        vid.src=url;vid.controls=true;vid.autoplay=true;
+        content.appendChild(vid);
+    }
+    dl.href=url;
+    document.getElementById('media-viewer').classList.add('active');
+}
+
+function closeViewer(){
+    const v=document.getElementById('media-viewer');
+    v.classList.remove('active');
+    // Останавливаем видео если играло
+    const vid=v.querySelector('video');
+    if(vid){vid.pause();vid.src='';}
+}
+
+// Закрыть по клику на фон
+document.getElementById('media-viewer').addEventListener('click',function(e){
+    if(e.target===this)closeViewer();
+});
+
 async function auth(type){
     const u=document.getElementById('username').value.trim();
     const p=document.getElementById('password').value;
@@ -158,16 +210,13 @@ function startApp(){
     document.getElementById('my-name').innerText=currentUser.username;
     document.getElementById('settings-name').innerText=currentUser.username;
     document.getElementById('settings-avatar').innerText=currentUser.username[0].toUpperCase();
-    connectWS();
-    loadChats();
-    startPing();
+    connectWS();loadChats();startPing();
 }
 
 function openSettings(){document.getElementById('settings-modal').style.display='flex';}
 function closeSettings(){document.getElementById('settings-modal').style.display='none';}
 function logout(){localStorage.clear();location.reload();}
 
-// --- Ping каждые 25 секунд чтобы соединение не засыпало ---
 function startPing(){
     clearInterval(pingTimer);
     pingTimer=setInterval(()=>{
@@ -194,7 +243,6 @@ function connectWS(){
         if(d.type==='private_message'){
             const otherId=d.sender_id==currentUser.id?Number(d.receiver_id):Number(d.sender_id);
             if(activeId&&otherId==activeId){
-                // Проверяем что такого сообщения ещё нет на экране
                 if(d.id>lastMsgId){addMsg(d);lastMsgId=d.id;}
             }
             loadChats();
@@ -221,7 +269,6 @@ function sendWS(obj){
     ws.send(JSON.stringify(obj));return true;
 }
 
-// --- Polling: проверяем новые сообщения каждые 3 секунды через HTTP ---
 function startPolling(){
     clearInterval(pollTimer);
     if(!activeId)return;
@@ -298,8 +345,7 @@ async function openChat(id,name){
 
 function closeChat(){
     document.getElementById('chat-area').classList.remove('active');
-    activeId=null;activeName=null;
-    stopPolling();
+    activeId=null;activeName=null;stopPolling();
 }
 
 function addMsg(m){
@@ -308,9 +354,15 @@ function addMsg(m){
     div.className='msg '+(m.sender_id==currentUser.id?'me':'op');
     const type=m.msgType||m.type||'text';
     let content='';
-    if(type==='image'&&m.file_url)content=`<img src="${m.file_url}" onload="scrollToBottom()" loading="lazy">`;
-    else if(type==='audio'&&m.file_url)content=`<audio controls src="${m.file_url}"></audio>`;
-    else content=`<span>${escapeHtml(m.text||'')}</span>`;
+    if(type==='image'&&m.file_url){
+        content=`<img src="${m.file_url}" onload="scrollToBottom()" loading="lazy" onclick="openViewer('${m.file_url}','image')">`;
+    } else if(type==='video'&&m.file_url){
+        content=`<video src="${m.file_url}" onclick="openViewer('${m.file_url}','video')" onloadeddata="scrollToBottom()"></video>`;
+    } else if(type==='audio'&&m.file_url){
+        content=`<audio controls src="${m.file_url}"></audio>`;
+    } else {
+        content=`<span>${escapeHtml(m.text||'')}</span>`;
+    }
     const time=m.timestamp?new Date(m.timestamp).toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}):'';
     div.innerHTML=content+`<div class="msg-time">${time}</div>`;
     container.appendChild(div);scrollToBottom();
@@ -331,11 +383,12 @@ async function sendFile(input){
     if(!activeId)return;
     const file=input.files[0];if(!file)return;
     input.disabled=true;
+    const isVideo=file.type.startsWith('video/');
     try{
         const fd=new FormData();fd.append('file',file);
         const res=await fetch('/api/upload',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
         const d=await res.json();
-        sendWS({type:'private_message',receiverId:activeId,msgType:'image',fileUrl:d.file_url});
+        sendWS({type:'private_message',receiverId:activeId,msgType:isVideo?'video':'image',fileUrl:d.file_url});
     }catch(e){alert('Ошибка загрузки файла');}
     input.value='';input.disabled=false;
 }
@@ -384,8 +437,7 @@ async function handleOffer(d){
         if(user&&user.username)callerName=user.username;
     }catch(e){}
     if(peerConn){sendWS({type:'call_hangup',receiverId:callerId});return;}
-    callTargetId=callerId;
-    pendingOffer=d;
+    callTargetId=callerId;pendingOffer=d;
     showCallScreen(callerName,'Входящий звонок...',true);
     try{
         await initRTC(callerId);
@@ -418,12 +470,8 @@ async function initRTC(targetId){
         audio.play().catch(()=>{});
     };
     peerConn.onconnectionstatechange=()=>{
-        if(peerConn&&peerConn.connectionState==='connected'){
-            document.getElementById('call-status').innerText='Разговор';
-        }
-        if(peerConn&&(peerConn.connectionState==='failed'||peerConn.connectionState==='disconnected')){
-            endCall(false);
-        }
+        if(peerConn&&peerConn.connectionState==='connected')document.getElementById('call-status').innerText='Разговор';
+        if(peerConn&&(peerConn.connectionState==='failed'||peerConn.connectionState==='disconnected'))endCall(false);
     };
 }
 
@@ -461,5 +509,5 @@ window.onload=()=>{
 После замены:
 ```
 git add .
-git commit -m "add heartbeat ping and polling"
+git commit -m "add video and media viewer"
 git push
