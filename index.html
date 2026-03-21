@@ -46,14 +46,24 @@
         .btn-danger { background: #ff3b30; width: 100%; margin-top: 14px; padding: 13px; border-radius: 12px; border: none; color: white; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn-danger-soft { background: rgba(255,59,48,0.12); color: #ff3b30; width: 100%; margin-top: 8px; padding: 13px; border-radius: 12px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn-close { margin-top: 12px; color: var(--primary); cursor: pointer; font-size: 15px; }
+
+        /* Экран звонка */
         #call-screen { position: fixed; inset: 0; background: #1c1c1e; z-index: 4000; display: none; flex-direction: column; align-items: center; justify-content: center; color: white; }
-        .call-avatar { width: 110px; height: 110px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; margin-bottom: 24px; }
-        #call-status { font-size: 16px; color: #aaaab0; margin-bottom: 6px; }
-        #call-name { font-size: 26px; font-weight: 600; }
-        .call-controls { position: absolute; bottom: 60px; display: flex; gap: 40px; }
-        .call-btn { width: 68px; height: 68px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 26px; cursor: pointer; }
+        #remote-video-el { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+        #local-video-el { position: absolute; top: 20px; right: 20px; width: 100px; height: 140px; object-fit: cover; border-radius: 12px; display: none; border: 2px solid rgba(255,255,255,0.3); }
+        .call-avatar { width: 110px; height: 110px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; margin-bottom: 24px; z-index: 1; }
+        #call-status { font-size: 16px; color: #aaaab0; margin-bottom: 6px; z-index: 1; }
+        #call-name { font-size: 26px; font-weight: 600; z-index: 1; }
+        .call-controls { position: absolute; bottom: 50px; display: flex; gap: 20px; z-index: 4200; flex-wrap: wrap; justify-content: center; padding: 0 20px; }
+        .call-btn { width: 62px; height: 62px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; flex-direction: column; }
+        .call-btn-label { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 6px; text-align: center; }
+        .call-btn-wrap { display: flex; flex-direction: column; align-items: center; }
         .hangup { background: #ff3b30; }
         .answer { background: #34c759; }
+        .call-btn-dark { background: rgba(255,255,255,0.2); }
+        .call-btn-dark.active { background: white; }
+        .call-btn-dark.active span { filter: invert(1); }
+
         #conn-status { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); background: #ff3b30; color: white; padding: 3px 14px; border-radius: 20px; font-size: 12px; display: none; z-index: 9999; }
         #media-viewer { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 9000; justify-content: center; align-items: center; }
         #media-viewer.active { display: flex; }
@@ -131,12 +141,43 @@
 
 <div id="call-screen">
     <audio id="remote-audio" autoplay playsinline></audio>
+    <video id="remote-video-el" autoplay playsinline></video>
+    <video id="local-video-el" autoplay playsinline muted></video>
     <div class="call-avatar" id="call-avatar-display">U</div>
     <div id="call-status">Звонок...</div>
     <div id="call-name">Собеседник</div>
     <div class="call-controls">
-        <div id="answer-btn" class="call-btn answer" onclick="acceptCall()" style="display:none;">📞</div>
-        <div class="call-btn hangup" onclick="endCall(true)">🛑</div>
+        <!-- Мьют -->
+        <div class="call-btn-wrap">
+            <div class="call-btn call-btn-dark" id="mute-btn" onclick="toggleMute()">
+                <span>🎤</span>
+            </div>
+            <div class="call-btn-label">Микрофон</div>
+        </div>
+        <!-- Динамик -->
+        <div class="call-btn-wrap">
+            <div class="call-btn call-btn-dark" id="speaker-btn" onclick="toggleSpeaker()">
+                <span>🔈</span>
+            </div>
+            <div class="call-btn-label">Динамик</div>
+        </div>
+        <!-- Камера -->
+        <div class="call-btn-wrap">
+            <div class="call-btn call-btn-dark" id="camera-btn" onclick="toggleCamera()">
+                <span>📷</span>
+            </div>
+            <div class="call-btn-label">Камера</div>
+        </div>
+        <!-- Ответить (только входящий) -->
+        <div class="call-btn-wrap" id="answer-wrap" style="display:none;">
+            <div class="call-btn answer" onclick="acceptCall()">📞</div>
+            <div class="call-btn-label">Ответить</div>
+        </div>
+        <!-- Завершить -->
+        <div class="call-btn-wrap">
+            <div class="call-btn hangup" onclick="endCall(true)">🛑</div>
+            <div class="call-btn-label">Завершить</div>
+        </div>
     </div>
 </div>
 
@@ -145,6 +186,7 @@ let currentUser=null,token=null,ws=null,activeId=null,activeName=null;
 let mediaRecorder=null,audioChunks=[],peerConn=null,localStream=null;
 let reconnectTimer=null,pendingOffer=null,callTargetId=null;
 let lastMsgId=0,pollTimer=null,pingTimer=null;
+let isMuted=false,isSpeaker=false,isCameraOn=false,videoTrack=null;
 
 const rtcConfig={iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -153,20 +195,11 @@ const rtcConfig={iceServers:[
     {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
 ]};
 
-// Определяем лучший формат для записи звука
 function getBestAudioMime(){
     const types=['audio/mp4','audio/aac','audio/webm;codecs=opus','audio/webm','audio/ogg'];
     for(const t of types){ if(MediaRecorder.isTypeSupported(t)) return t; }
     return '';
 }
-
-// Определяем лучший формат для видео
-function getBestVideoMime(){
-    const types=['video/mp4','video/webm;codecs=h264','video/webm;codecs=vp9','video/webm'];
-    for(const t of types){ if(MediaRecorder.isTypeSupported(t)) return t; }
-    return '';
-}
-
 function getExtFromMime(mime){
     if(mime.includes('mp4')||mime.includes('aac'))return 'mp4';
     if(mime.includes('ogg'))return 'ogg';
@@ -187,14 +220,12 @@ function openViewer(url,type){
     dl.href=url;
     document.getElementById('media-viewer').classList.add('active');
 }
-
 function closeViewer(){
     const v=document.getElementById('media-viewer');
     v.classList.remove('active');
     const vid=v.querySelector('video');
     if(vid){vid.pause();vid.src='';}
 }
-
 document.getElementById('media-viewer').addEventListener('click',function(e){
     if(e.target===this)closeViewer();
 });
@@ -247,9 +278,7 @@ function startPing(){
     pingTimer=setInterval(()=>{
         if(ws&&ws.readyState===WebSocket.OPEN){
             ws.send(JSON.stringify({type:'ping'}));
-        }else{
-            connectWS();
-        }
+        }else{ connectWS(); }
     },25000);
 }
 
@@ -309,7 +338,6 @@ function startPolling(){
         }catch(e){}
     },3000);
 }
-
 function stopPolling(){clearInterval(pollTimer);pollTimer=null;}
 
 async function loadChats(){
@@ -427,7 +455,7 @@ async function toggleRecord(){
             const mimeType=getBestAudioMime();
             mediaRecorder=new MediaRecorder(stream,mimeType?{mimeType}:{});
             audioChunks=[];
-            mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) audioChunks.push(e.data); };
+            mediaRecorder.ondataavailable=e=>{if(e.data.size>0)audioChunks.push(e.data);};
             mediaRecorder.onstop=async()=>{
                 const mime=mediaRecorder.mimeType||'audio/webm';
                 const ext=getExtFromMime(mime);
@@ -440,18 +468,63 @@ async function toggleRecord(){
                 }catch(e){alert('Ошибка отправки голосового');}
                 stream.getTracks().forEach(t=>t.stop());
             };
-            mediaRecorder.start();
-            btn.classList.add('recording');btn.innerText='⏹️';
+            mediaRecorder.start();btn.classList.add('recording');btn.innerText='⏹️';
         }catch(e){alert('Нет доступа к микрофону!');}
+    }else{mediaRecorder.stop();btn.classList.remove('recording');btn.innerText='🎤';}
+}
+
+// --- Звонки ---
+function toggleMute(){
+    if(!localStream)return;
+    isMuted=!isMuted;
+    localStream.getAudioTracks().forEach(t=>t.enabled=!isMuted);
+    const btn=document.getElementById('mute-btn');
+    btn.querySelector('span').innerText=isMuted?'🔇':'🎤';
+    btn.classList.toggle('active',isMuted);
+}
+
+function toggleSpeaker(){
+    isSpeaker=!isSpeaker;
+    const audio=document.getElementById('remote-audio');
+    if(audio.setSinkId){
+        audio.setSinkId(isSpeaker?'':'default').catch(()=>{});
+    }
+    const btn=document.getElementById('speaker-btn');
+    btn.querySelector('span').innerText=isSpeaker?'🔊':'🔈';
+    btn.classList.toggle('active',isSpeaker);
+}
+
+async function toggleCamera(){
+    isCameraOn=!isCameraOn;
+    const btn=document.getElementById('camera-btn');
+    if(isCameraOn){
+        try{
+            const videoStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+            videoTrack=videoStream.getVideoTracks()[0];
+            if(peerConn){
+                const sender=peerConn.getSenders().find(s=>s.track&&s.track.kind==='video');
+                if(sender){sender.replaceTrack(videoTrack);}
+                else{peerConn.addTrack(videoTrack,localStream);}
+            }
+            localStream.addTrack(videoTrack);
+            const localVid=document.getElementById('local-video-el');
+            localVid.srcObject=new MediaStream([videoTrack]);
+            localVid.style.display='block';
+            btn.querySelector('span').innerText='📹';
+            btn.classList.add('active');
+        }catch(e){isCameraOn=false;alert('Нет доступа к камере!');}
     }else{
-        mediaRecorder.stop();
-        btn.classList.remove('recording');btn.innerText='🎤';
+        if(videoTrack){videoTrack.stop();videoTrack=null;}
+        document.getElementById('local-video-el').style.display='none';
+        btn.querySelector('span').innerText='📷';
+        btn.classList.remove('active');
     }
 }
 
 async function startCall(){
     if(!activeId)return;
     callTargetId=activeId;
+    isMuted=false;isSpeaker=false;isCameraOn=false;
     showCallScreen(activeName,'Исходящий звонок...',false);
     try{
         await initRTC(callTargetId);
@@ -471,6 +544,7 @@ async function handleOffer(d){
     }catch(e){}
     if(peerConn){sendWS({type:'call_hangup',receiverId:callerId});return;}
     callTargetId=callerId;pendingOffer=d;
+    isMuted=false;isSpeaker=false;isCameraOn=false;
     showCallScreen(callerName,'Входящий звонок...',true);
     try{
         await initRTC(callerId);
@@ -480,7 +554,7 @@ async function handleOffer(d){
 
 async function acceptCall(){
     if(!peerConn)return;
-    document.getElementById('answer-btn').style.display='none';
+    document.getElementById('answer-wrap').style.display='none';
     document.getElementById('call-status').innerText='Разговор';
     try{
         const answer=await peerConn.createAnswer();
@@ -498,9 +572,17 @@ async function initRTC(targetId){
         if(e.candidate)sendWS({type:'ice_candidate',receiverId:targetId,candidate:e.candidate});
     };
     peerConn.ontrack=e=>{
-        const audio=document.getElementById('remote-audio');
-        audio.srcObject=e.streams[0];
-        audio.play().catch(()=>{});
+        const isVideo=e.track.kind==='video';
+        if(isVideo){
+            const remoteVid=document.getElementById('remote-video-el');
+            remoteVid.srcObject=e.streams[0];
+            remoteVid.style.display='block';
+            document.getElementById('call-avatar-display').style.display='none';
+        }else{
+            const audio=document.getElementById('remote-audio');
+            audio.srcObject=e.streams[0];
+            audio.play().catch(()=>{});
+        }
     };
     peerConn.onconnectionstatechange=()=>{
         if(peerConn&&peerConn.connectionState==='connected')document.getElementById('call-status').innerText='Разговор';
@@ -512,19 +594,32 @@ function showCallScreen(name,status,isIncoming){
     document.getElementById('call-screen').style.display='flex';
     document.getElementById('call-name').innerText=name||'Собеседник';
     document.getElementById('call-avatar-display').innerText=(name||'U')[0].toUpperCase();
+    document.getElementById('call-avatar-display').style.display='flex';
     document.getElementById('call-status').innerText=status;
-    document.getElementById('answer-btn').style.display=isIncoming?'flex':'none';
+    document.getElementById('answer-wrap').style.display=isIncoming?'flex':'none';
+    document.getElementById('mute-btn').querySelector('span').innerText='🎤';
+    document.getElementById('mute-btn').classList.remove('active');
+    document.getElementById('speaker-btn').querySelector('span').innerText='🔈';
+    document.getElementById('speaker-btn').classList.remove('active');
+    document.getElementById('camera-btn').querySelector('span').innerText='📷';
+    document.getElementById('camera-btn').classList.remove('active');
+    document.getElementById('remote-video-el').style.display='none';
+    document.getElementById('local-video-el').style.display='none';
 }
 
 function endCall(notify=true){
     const idToNotify=callTargetId;
     if(notify&&idToNotify)sendWS({type:'call_hangup',receiverId:idToNotify});
+    if(videoTrack){videoTrack.stop();videoTrack=null;}
     if(peerConn){peerConn.close();peerConn=null;}
     if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null;}
     pendingOffer=null;callTargetId=null;
+    isMuted=false;isSpeaker=false;isCameraOn=false;
     document.getElementById('call-screen').style.display='none';
-    document.getElementById('answer-btn').style.display='none';
+    document.getElementById('answer-wrap').style.display='none';
     document.getElementById('call-status').innerText='Звонок...';
+    document.getElementById('remote-video-el').style.display='none';
+    document.getElementById('local-video-el').style.display='none';
 }
 
 window.onload=()=>{
