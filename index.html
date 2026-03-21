@@ -79,13 +79,11 @@
 </head>
 <body>
 <div id="conn-status">Нет соединения. Переподключение...</div>
-
 <div id="media-viewer">
     <span id="media-viewer-close" onclick="closeViewer()">✕</span>
     <div id="media-viewer-content"></div>
     <a id="media-viewer-download" download>⬇ Сохранить</a>
 </div>
-
 <div id="auth-screen">
     <h2>Messenger</h2>
     <input type="text" id="username" placeholder="Логин" autocomplete="username">
@@ -94,7 +92,6 @@
     <button onclick="auth('login')">Войти</button>
     <button class="link-btn" onclick="auth('register')">Создать аккаунт</button>
 </div>
-
 <div id="main-app">
     <div id="sidebar">
         <div id="sidebar-header">
@@ -125,7 +122,6 @@
         </div>
     </div>
 </div>
-
 <div id="settings-modal">
     <div class="settings-content">
         <div class="avatar" id="settings-avatar" style="width:70px;height:70px;font-size:30px;margin:0 auto 12px;">U</div>
@@ -135,7 +131,6 @@
         <div class="btn-close" onclick="closeSettings()">Закрыть</div>
     </div>
 </div>
-
 <div id="call-screen">
     <audio id="remote-audio" autoplay playsinline></audio>
     <video id="remote-video-el" autoplay playsinline></video>
@@ -147,6 +142,10 @@
         <div class="call-btn-wrap">
             <div class="call-btn call-btn-dark" id="mute-btn" onclick="toggleMute()"><span>🎤</span></div>
             <div class="call-btn-label">Микрофон</div>
+        </div>
+        <div class="call-btn-wrap">
+            <div class="call-btn call-btn-dark" id="volume-btn" onclick="toggleVolume()"><span>🔈</span></div>
+            <div class="call-btn-label">Громкость</div>
         </div>
         <div class="call-btn-wrap">
             <div class="call-btn call-btn-dark" id="camera-btn" onclick="toggleCamera()"><span>📷</span></div>
@@ -162,13 +161,12 @@
         </div>
     </div>
 </div>
-
 <script>
 let currentUser=null,token=null,ws=null,activeId=null,activeName=null;
 let mediaRecorder=null,audioChunks=[],peerConn=null,localStream=null;
 let reconnectTimer=null,pendingOffer=null,callTargetId=null;
 let lastMsgId=0,pollTimer=null,pingTimer=null;
-let isMuted=false,isCameraOn=false,videoTrack=null;
+let isMuted=false,isCameraOn=false,isLoud=false,videoTrack=null;
 
 const rtcConfig={iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -461,12 +459,23 @@ function toggleMute(){
     btn.classList.toggle('active',isMuted);
 }
 
+function toggleVolume(){
+    isLoud=!isLoud;
+    const audio=document.getElementById('remote-audio');
+    audio.volume=isLoud?1.0:0.3;
+    const btn=document.getElementById('volume-btn');
+    btn.querySelector('span').innerText=isLoud?'🔊':'🔈';
+    btn.classList.toggle('active',isLoud);
+}
+
 async function toggleCamera(){
     isCameraOn=!isCameraOn;
     const btn=document.getElementById('camera-btn');
     if(isCameraOn){
         try{
-            const videoStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+            const videoStream=await navigator.mediaDevices.getUserMedia({
+                video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}}
+            });
             videoTrack=videoStream.getVideoTracks()[0];
             if(peerConn){
                 const sender=peerConn.getSenders().find(s=>s.track&&s.track.kind==='video');
@@ -487,8 +496,14 @@ async function toggleCamera(){
             btn.classList.add('active');
         }catch(e){isCameraOn=false;alert('Нет доступа к камере!');}
     }else{
+        if(peerConn){
+            const sender=peerConn.getSenders().find(s=>s.track&&s.track.kind==='video');
+            if(sender)await sender.replaceTrack(null);
+        }
         if(videoTrack){videoTrack.stop();videoTrack=null;}
         document.getElementById('local-video-el').style.display='none';
+        document.getElementById('remote-video-el').style.display='none';
+        document.getElementById('call-avatar-display').style.display='flex';
         btn.querySelector('span').innerText='📷';
         btn.classList.remove('active');
     }
@@ -497,7 +512,7 @@ async function toggleCamera(){
 async function startCall(){
     if(!activeId)return;
     callTargetId=activeId;
-    isMuted=false;isCameraOn=false;
+    isMuted=false;isCameraOn=false;isLoud=false;
     showCallScreen(activeName,'Исходящий звонок...',false);
     try{
         await initRTC(callTargetId);
@@ -517,7 +532,7 @@ async function handleOffer(d){
     }catch(e){}
     if(peerConn){sendWS({type:'call_hangup',receiverId:callerId});return;}
     callTargetId=callerId;pendingOffer=d;
-    isMuted=false;isCameraOn=false;
+    isMuted=false;isCameraOn=false;isLoud=false;
     showCallScreen(callerName,'Входящий звонок...',true);
     try{
         await initRTC(callerId);
@@ -550,9 +565,14 @@ async function initRTC(targetId){
             remoteVid.srcObject=e.streams[0];
             remoteVid.style.display='block';
             document.getElementById('call-avatar-display').style.display='none';
+            e.track.onended=()=>{
+                remoteVid.style.display='none';
+                document.getElementById('call-avatar-display').style.display='flex';
+            };
         }else{
             const audio=document.getElementById('remote-audio');
             audio.srcObject=e.streams[0];
+            audio.volume=isLoud?1.0:0.3;
             audio.play().catch(()=>{});
         }
     };
@@ -571,6 +591,8 @@ function showCallScreen(name,status,isIncoming){
     document.getElementById('answer-wrap').style.display=isIncoming?'flex':'none';
     document.getElementById('mute-btn').querySelector('span').innerText='🎤';
     document.getElementById('mute-btn').classList.remove('active');
+    document.getElementById('volume-btn').querySelector('span').innerText='🔈';
+    document.getElementById('volume-btn').classList.remove('active');
     document.getElementById('camera-btn').querySelector('span').innerText='📷';
     document.getElementById('camera-btn').classList.remove('active');
     document.getElementById('remote-video-el').style.display='none';
@@ -584,7 +606,7 @@ function endCall(notify=true){
     if(peerConn){peerConn.close();peerConn=null;}
     if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null;}
     pendingOffer=null;callTargetId=null;
-    isMuted=false;isCameraOn=false;
+    isMuted=false;isCameraOn=false;isLoud=false;
     document.getElementById('call-screen').style.display='none';
     document.getElementById('answer-wrap').style.display='none';
     document.getElementById('call-status').innerText='Звонок...';
