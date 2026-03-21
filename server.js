@@ -273,10 +273,3 @@ const PORT = process.env.PORT || 3000;
 initDB().then(() => {
     server.listen(PORT, () => console.log(`✅ Сервер запущен на http://localhost:${PORT}`));
 });
-```
-
-После замены:
-```
-git add .
-git commit -m "fix content-type for safari"
-git push
