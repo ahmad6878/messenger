@@ -6,22 +6,22 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { Pool } = require('pg');
+const cloudinary = require('cloudinary').v2;
 
 const SECRET_KEY = 'my_super_secret_messenger_key';
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/'),
-    filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
-});
-const upload = multer({ storage: storage });
+const upload = multer({ storage: multer.memoryStorage() });
 
 async function initDB() {
     await pool.query(`
@@ -55,9 +55,24 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/api/upload' && req.method === 'POST') {
         const auth = authenticate(req);
         if (!auth) { res.writeHead(401); res.end(JSON.stringify({error:'Unauthorized'})); return; }
-        upload.single('file')(req, res, (err) => {
+        upload.single('file')(req, res, async (err) => {
             if (err || !req.file) { res.end(JSON.stringify({error:'Upload failed'})); return; }
-            res.end(JSON.stringify({ file_url: `/uploads/${req.file.filename}` }));
+            try {
+                const ext = path.extname(req.file.originalname).toLowerCase();
+                const isVideo = ['.mp4','.mov','.webm','.avi'].includes(ext);
+                const isAudio = ['.mp3','.m4a','.aac','.ogg','.wav','.webm'].includes(ext);
+                const resourceType = isVideo ? 'video' : isAudio ? 'video' : 'image';
+                const result = await new Promise((resolve, reject) => {
+                    cloudinary.uploader.upload_stream(
+                        { resource_type: resourceType, folder: 'messenger' },
+                        (error, result) => error ? reject(error) : resolve(result)
+                    ).end(req.file.buffer);
+                });
+                res.end(JSON.stringify({ file_url: result.secure_url }));
+            } catch(e) {
+                console.error('Cloudinary error:', e);
+                res.end(JSON.stringify({error:'Upload failed'}));
+            }
         });
         return;
     }
@@ -176,28 +191,6 @@ const server = http.createServer(async (req, res) => {
         const userId = req.url.split('/').pop();
         const r = await pool.query('SELECT id, username FROM users WHERE id = $1', [parseInt(userId)]);
         res.end(JSON.stringify(r.rows[0] || {}));
-        return;
-    }
-
-    if (req.url.startsWith('/uploads/')) {
-        const p = path.join(__dirname, req.url);
-        if (fs.existsSync(p)) {
-            const ext = path.extname(p).toLowerCase();
-            const types = {
-                '.mp4': 'video/mp4', '.mov': 'video/quicktime',
-                '.webm': 'video/webm', '.mp3': 'audio/mpeg',
-                '.m4a': 'audio/mp4', '.aac': 'audio/aac',
-                '.ogg': 'audio/ogg', '.wav': 'audio/wav',
-                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                '.png': 'image/png', '.gif': 'image/gif',
-                '.webp': 'image/webp'
-            };
-            res.setHeader('Content-Type', types[ext] || 'application/octet-stream');
-            res.setHeader('Accept-Ranges', 'bytes');
-            fs.createReadStream(p).pipe(res);
-        } else {
-            res.writeHead(404); res.end('Not found');
-        }
         return;
     }
 
