@@ -48,28 +48,21 @@
         .btn-close { margin-top: 12px; color: var(--primary); cursor: pointer; font-size: 15px; }
         #call-screen { position: fixed; inset: 0; background: #1c1c1e; z-index: 4000; display: none; flex-direction: column; align-items: center; justify-content: center; color: white; }
         #remote-video-el { display: none; object-fit: cover; border-radius: 28px; z-index: 4050; }
-        @media (max-width: 768px) {
-            #remote-video-el { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 0; }
-        }
-        @media (min-width: 769px) {
-            #remote-video-el { width: 340px; height: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
-        }
+        @media (max-width: 768px) { #remote-video-el { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 0; } }
+        @media (min-width: 769px) { #remote-video-el { width: 340px; height: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); } }
         #local-video-el { position: absolute; object-fit: cover; border-radius: 12px; display: none; border: 2px solid rgba(255,255,255,0.3); z-index: 4100; }
-        @media (max-width: 768px) {
-            #local-video-el { top: 20px; right: 20px; width: 90px; height: 130px; }
-        }
-        @media (min-width: 769px) {
-            #local-video-el { bottom: 140px; right: calc(50% - 220px); width: 90px; height: 130px; }
-        }
+        @media (max-width: 768px) { #local-video-el { top: 20px; right: 20px; width: 90px; height: 130px; } }
+        @media (min-width: 769px) { #local-video-el { bottom: 140px; right: calc(50% - 220px); width: 90px; height: 130px; } }
         .call-avatar { width: 110px; height: 110px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; margin-bottom: 24px; z-index: 4060; }
         #call-status { font-size: 16px; color: #aaaab0; margin-bottom: 6px; z-index: 4060; }
-        #call-name { font-size: 26px; font-weight: 600; z-index: 4060; }
+        #call-name { font-size: 26px; font-weight: 600; z-index: 4060; margin-bottom: 8px; }
         .call-controls { position: absolute; bottom: 50px; display: flex; gap: 16px; z-index: 4200; flex-wrap: wrap; justify-content: center; padding: 0 20px; }
         .call-btn-wrap { display: flex; flex-direction: column; align-items: center; }
         .call-btn { width: 62px; height: 62px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; }
         .call-btn-label { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 6px; text-align: center; }
         .hangup { background: #ff3b30; }
         .answer { background: #34c759; }
+        .decline { background: #ff3b30; }
         .call-btn-dark { background: rgba(255,255,255,0.2); }
         .call-btn-dark.active { background: white; }
         .call-btn-dark.active span { filter: invert(1); }
@@ -87,6 +80,8 @@
             #back-btn { display: block; }
         }
         @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+        @keyframes ring { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+        .ringing { animation: ring 1s ease-in-out infinite; }
     </style>
 </head>
 <body>
@@ -145,21 +140,23 @@
 </div>
 <div id="call-screen">
     <audio id="remote-audio" autoplay playsinline></audio>
+    <audio id="ringtone" loop></audio>
+    <audio id="ringback" loop></audio>
     <video id="remote-video-el" autoplay playsinline></video>
     <video id="local-video-el" autoplay playsinline muted></video>
     <div class="call-avatar" id="call-avatar-display">U</div>
     <div id="call-status">Звонок...</div>
     <div id="call-name">Собеседник</div>
     <div class="call-controls">
-        <div class="call-btn-wrap">
+        <div class="call-btn-wrap" id="mute-wrap">
             <div class="call-btn call-btn-dark" id="mute-btn" onclick="toggleMute()"><span>🎤</span></div>
             <div class="call-btn-label">Микрофон</div>
         </div>
-        <div class="call-btn-wrap">
+        <div class="call-btn-wrap" id="volume-wrap">
             <div class="call-btn call-btn-dark" id="volume-btn" onclick="toggleVolume()"><span>🔈</span></div>
             <div class="call-btn-label">Громкость</div>
         </div>
-        <div class="call-btn-wrap">
+        <div class="call-btn-wrap" id="camera-wrap">
             <div class="call-btn call-btn-dark" id="camera-btn" onclick="toggleCamera()"><span>📷</span></div>
             <div class="call-btn-label">Камера</div>
         </div>
@@ -167,7 +164,11 @@
             <div class="call-btn answer" onclick="acceptCall()">📞</div>
             <div class="call-btn-label">Ответить</div>
         </div>
-        <div class="call-btn-wrap">
+        <div class="call-btn-wrap" id="decline-wrap" style="display:none;">
+            <div class="call-btn decline" onclick="declineCall()">📵</div>
+            <div class="call-btn-label">Отклонить</div>
+        </div>
+        <div class="call-btn-wrap" id="hangup-wrap">
             <div class="call-btn hangup" onclick="endCall(true)">🛑</div>
             <div class="call-btn-label">Завершить</div>
         </div>
@@ -179,6 +180,7 @@ let mediaRecorder=null,audioChunks=[],peerConn=null,localStream=null;
 let reconnectTimer=null,pendingOffer=null,callTargetId=null;
 let lastMsgId=0,pollTimer=null,pingTimer=null;
 let isMuted=false,isCameraOn=false,isLoud=false,videoTrack=null;
+let isOutgoing=false;
 
 const rtcConfig={iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -186,6 +188,57 @@ const rtcConfig={iceServers:[
     {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
     {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
 ]};
+
+// --- Звуки через Web Audio API (без файлов) ---
+let audioCtx=null;
+function getAudioCtx(){
+    if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    return audioCtx;
+}
+
+// Гудки для звонящего (длинные гудки)
+let ringbackInterval=null;
+function startRingback(){
+    stopRingback();
+    const ctx=getAudioCtx();
+    function beep(){
+        const osc=ctx.createOscillator();
+        const gain=ctx.createGain();
+        osc.connect(gain);gain.connect(ctx.destination);
+        osc.frequency.value=440;
+        gain.gain.setValueAtTime(0.3,ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+1.0);
+        osc.start(ctx.currentTime);osc.stop(ctx.currentTime+1.0);
+    }
+    beep();
+    ringbackInterval=setInterval(beep,2000);
+}
+function stopRingback(){
+    if(ringbackInterval){clearInterval(ringbackInterval);ringbackInterval=null;}
+}
+
+// Рингтон для получателя (короткие повторяющиеся звуки)
+let ringtoneInterval=null;
+function startRingtone(){
+    stopRingtone();
+    const ctx=getAudioCtx();
+    function ring(){
+        [0,0.2,0.4].forEach(t=>{
+            const osc=ctx.createOscillator();
+            const gain=ctx.createGain();
+            osc.connect(gain);gain.connect(ctx.destination);
+            osc.frequency.value=880;
+            gain.gain.setValueAtTime(0.4,ctx.currentTime+t);
+            gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+t+0.15);
+            osc.start(ctx.currentTime+t);osc.stop(ctx.currentTime+t+0.15);
+        });
+    }
+    ring();
+    ringtoneInterval=setInterval(ring,1500);
+}
+function stopRingtone(){
+    if(ringtoneInterval){clearInterval(ringtoneInterval);ringtoneInterval=null;}
+}
 
 function getBestAudioMime(){
     const types=['audio/mp4','audio/aac','audio/webm;codecs=opus','audio/webm','audio/ogg'];
@@ -294,13 +347,19 @@ function connectWS(){
             sendWS({type:'call_answer',receiverId:callTargetId||d.sender_id,sdp:answer});
         }
         if(d.type==='call_answer'&&peerConn){
+            stopRingback();
             await peerConn.setRemoteDescription(new RTCSessionDescription(d.sdp));
             document.getElementById('call-status').innerText='Разговор';
+            // Скрываем кнопки входящего, показываем кнопки разговора
+            setCallMode('talking');
         }
         if(d.type==='ice_candidate'&&peerConn){
             try{await peerConn.addIceCandidate(new RTCIceCandidate(d.candidate));}catch(e){}
         }
-        if(d.type==='call_hangup')endCall(false);
+        if(d.type==='call_hangup'||d.type==='call_decline'){
+            stopRingback();stopRingtone();
+            endCall(false);
+        }
     };
     ws.onclose=()=>{
         document.getElementById('conn-status').style.display='block';
@@ -480,7 +539,6 @@ function toggleVolume(){
     btn.classList.toggle('active',isLoud);
 }
 
-// Камера — полностью пересоздаём поток при каждом включении
 async function toggleCamera(){
     const btn=document.getElementById('camera-btn');
     if(!isCameraOn){
@@ -490,52 +548,30 @@ async function toggleCamera(){
             });
             videoTrack=videoStream.getVideoTracks()[0];
             isCameraOn=true;
-
             if(peerConn){
-                // Удаляем все старые видео senders
-                peerConn.getSenders()
-                    .filter(s=>s.track&&s.track.kind==='video')
-                    .forEach(s=>peerConn.removeTrack(s));
-
-                // Добавляем свежий трек
+                peerConn.getSenders().filter(s=>s.track&&s.track.kind==='video').forEach(s=>peerConn.removeTrack(s));
                 peerConn.addTrack(videoTrack,localStream);
-
-                // Пересогласовываем
                 const offer=await peerConn.createOffer();
                 await peerConn.setLocalDescription(offer);
                 sendWS({type:'call_offer_update',receiverId:callTargetId,sdp:offer});
             }
-
             const localVid=document.getElementById('local-video-el');
             localVid.srcObject=new MediaStream([videoTrack]);
             localVid.style.display='block';
             btn.querySelector('span').innerText='📹';
             btn.classList.add('active');
-        }catch(e){
-            isCameraOn=false;
-            console.error('Camera error:',e);
-            alert('Нет доступа к камере!');
-        }
+        }catch(e){isCameraOn=false;alert('Нет доступа к камере!');}
     }else{
         isCameraOn=false;
-
-        // Останавливаем трек
-        if(videoTrack){videoTrack.stop();videoTrack=null;}
-
-        // Удаляем видео senders из peerConn
         if(peerConn){
-            peerConn.getSenders()
-                .filter(s=>s.track&&s.track.kind==='video')
-                .forEach(s=>peerConn.removeTrack(s));
-
-            // Пересогласовываем чтобы собеседник знал что видео выключено
+            peerConn.getSenders().filter(s=>s.track&&s.track.kind==='video').forEach(s=>peerConn.removeTrack(s));
             try{
                 const offer=await peerConn.createOffer();
                 await peerConn.setLocalDescription(offer);
                 sendWS({type:'call_offer_update',receiverId:callTargetId,sdp:offer});
             }catch(e){}
         }
-
+        if(videoTrack){videoTrack.stop();videoTrack=null;}
         document.getElementById('local-video-el').style.display='none';
         document.getElementById('remote-video-el').style.display='none';
         document.getElementById('call-avatar-display').style.display='flex';
@@ -544,16 +580,57 @@ async function toggleCamera(){
     }
 }
 
+// Режимы экрана звонка
+function setCallMode(mode){
+    // mode: 'outgoing' | 'incoming' | 'talking'
+    const answerWrap=document.getElementById('answer-wrap');
+    const declineWrap=document.getElementById('decline-wrap');
+    const muteWrap=document.getElementById('mute-wrap');
+    const volumeWrap=document.getElementById('volume-wrap');
+    const cameraWrap=document.getElementById('camera-wrap');
+    const hangupWrap=document.getElementById('hangup-wrap');
+    const avatar=document.getElementById('call-avatar-display');
+
+    if(mode==='outgoing'){
+        answerWrap.style.display='none';
+        declineWrap.style.display='none';
+        muteWrap.style.display='none';
+        volumeWrap.style.display='none';
+        cameraWrap.style.display='none';
+        hangupWrap.style.display='flex';
+        avatar.classList.add('ringing');
+    }else if(mode==='incoming'){
+        answerWrap.style.display='flex';
+        declineWrap.style.display='flex';
+        muteWrap.style.display='none';
+        volumeWrap.style.display='none';
+        cameraWrap.style.display='none';
+        hangupWrap.style.display='none';
+        avatar.classList.add('ringing');
+    }else if(mode==='talking'){
+        answerWrap.style.display='none';
+        declineWrap.style.display='none';
+        muteWrap.style.display='flex';
+        volumeWrap.style.display='flex';
+        cameraWrap.style.display='flex';
+        hangupWrap.style.display='flex';
+        avatar.classList.remove('ringing');
+    }
+}
+
 async function startCall(){
     if(!activeId)return;
     callTargetId=activeId;
+    isOutgoing=true;
     isMuted=false;isCameraOn=false;isLoud=false;videoTrack=null;
-    showCallScreen(activeName,'Исходящий звонок...',false);
+    showCallScreen(activeName,'Звонок...',false);
+    setCallMode('outgoing');
     try{
         await initRTC(callTargetId);
         const offer=await peerConn.createOffer();
         await peerConn.setLocalDescription(offer);
         sendWS({type:'call_offer',receiverId:callTargetId,sdp:offer});
+        startRingback();
     }catch(e){alert('Нет доступа к микрофону!');endCall(false);}
 }
 
@@ -567,8 +644,11 @@ async function handleOffer(d){
     }catch(e){}
     if(peerConn){sendWS({type:'call_hangup',receiverId:callerId});return;}
     callTargetId=callerId;pendingOffer=d;
+    isOutgoing=false;
     isMuted=false;isCameraOn=false;isLoud=false;videoTrack=null;
     showCallScreen(callerName,'Входящий звонок...',true);
+    setCallMode('incoming');
+    startRingtone();
     try{
         await initRTC(callerId);
         await peerConn.setRemoteDescription(new RTCSessionDescription(d.sdp));
@@ -576,9 +656,9 @@ async function handleOffer(d){
 }
 
 async function acceptCall(){
-    if(!peerConn)return;
-    document.getElementById('answer-wrap').style.display='none';
+    stopRingtone();
     document.getElementById('call-status').innerText='Разговор';
+    setCallMode('talking');
     try{
         const answer=await peerConn.createAnswer();
         await peerConn.setLocalDescription(answer);
@@ -586,45 +666,40 @@ async function acceptCall(){
     }catch(e){endCall(false);}
 }
 
+function declineCall(){
+    stopRingtone();
+    sendWS({type:'call_decline',receiverId:callTargetId});
+    endCall(false);
+}
+
 async function initRTC(targetId){
     if(peerConn){peerConn.close();peerConn=null;}
-    // Получаем аудио поток
     localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
     peerConn=new RTCPeerConnection(rtcConfig);
-    // Добавляем только аудио трек
     localStream.getAudioTracks().forEach(t=>peerConn.addTrack(t,localStream));
-
     peerConn.onicecandidate=e=>{
         if(e.candidate)sendWS({type:'ice_candidate',receiverId:targetId,candidate:e.candidate});
     };
-
     peerConn.ontrack=e=>{
         if(e.track.kind==='video'){
             const remoteVid=document.getElementById('remote-video-el');
-            if(!remoteVid.srcObject||remoteVid.srcObject!==e.streams[0]){
-                remoteVid.srcObject=e.streams[0];
-            }
+            remoteVid.srcObject=e.streams[0];
             remoteVid.style.display='block';
             document.getElementById('call-avatar-display').style.display='none';
-            e.track.onmute=()=>{
-                remoteVid.style.display='none';
-                document.getElementById('call-avatar-display').style.display='flex';
-            };
-            e.track.onunmute=()=>{
-                remoteVid.style.display='block';
-                document.getElementById('call-avatar-display').style.display='none';
-            };
+            e.track.onmute=()=>{remoteVid.style.display='none';document.getElementById('call-avatar-display').style.display='flex';};
+            e.track.onunmute=()=>{remoteVid.style.display='block';document.getElementById('call-avatar-display').style.display='none';};
         }else{
-            // Аудио — просто подключаем к элементу
             const audio=document.getElementById('remote-audio');
             audio.srcObject=e.streams[0];
             audio.volume=isLoud?1.0:0.3;
             audio.play().catch(()=>{});
         }
     };
-
     peerConn.onconnectionstatechange=()=>{
-        if(peerConn&&peerConn.connectionState==='connected')document.getElementById('call-status').innerText='Разговор';
+        if(peerConn&&peerConn.connectionState==='connected'){
+            document.getElementById('call-status').innerText='Разговор';
+            setCallMode('talking');
+        }
         if(peerConn&&(peerConn.connectionState==='failed'||peerConn.connectionState==='disconnected'))endCall(false);
     };
 }
@@ -635,7 +710,6 @@ function showCallScreen(name,status,isIncoming){
     document.getElementById('call-avatar-display').innerText=(name||'U')[0].toUpperCase();
     document.getElementById('call-avatar-display').style.display='flex';
     document.getElementById('call-status').innerText=status;
-    document.getElementById('answer-wrap').style.display=isIncoming?'flex':'none';
     document.getElementById('mute-btn').querySelector('span').innerText='🎤';
     document.getElementById('mute-btn').classList.remove('active');
     document.getElementById('volume-btn').querySelector('span').innerText='🔈';
@@ -647,15 +721,16 @@ function showCallScreen(name,status,isIncoming){
 }
 
 function endCall(notify=true){
+    stopRingback();stopRingtone();
     const idToNotify=callTargetId;
     if(notify&&idToNotify)sendWS({type:'call_hangup',receiverId:idToNotify});
     if(videoTrack){videoTrack.stop();videoTrack=null;}
     if(peerConn){peerConn.close();peerConn=null;}
     if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null;}
     pendingOffer=null;callTargetId=null;
-    isMuted=false;isCameraOn=false;isLoud=false;
+    isMuted=false;isCameraOn=false;isLoud=false;isOutgoing=false;
     document.getElementById('call-screen').style.display='none';
-    document.getElementById('answer-wrap').style.display='none';
+    document.getElementById('call-avatar-display').classList.remove('ringing');
     document.getElementById('call-status').innerText='Звонок...';
     document.getElementById('remote-video-el').style.display='none';
     document.getElementById('local-video-el').style.display='none';

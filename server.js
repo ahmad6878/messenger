@@ -60,7 +60,7 @@ const server = http.createServer(async (req, res) => {
             try {
                 const ext = path.extname(req.file.originalname).toLowerCase();
                 const isVideo = ['.mp4','.mov','.webm','.avi'].includes(ext);
-                const isAudio = ['.mp3','.m4a','.aac','.ogg','.wav','.webm'].includes(ext);
+                const isAudio = ['.mp3','.m4a','.aac','.ogg','.wav'].includes(ext);
                 const resourceType = isVideo ? 'video' : isAudio ? 'video' : 'image';
                 const result = await new Promise((resolve, reject) => {
                     cloudinary.uploader.upload_stream(
@@ -251,6 +251,7 @@ wss.on('connection', (ws) => {
                 ws.send(JSON.stringify(obj));
                 return;
             }
+            // Пересылаем все остальные типы (звонки, call_decline и т.д.)
             if (d.receiverId) {
                 const target = clients.get(Number(d.receiverId));
                 if (target && target.readyState === WebSocket.OPEN) {
