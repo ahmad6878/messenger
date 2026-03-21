@@ -182,7 +182,18 @@ const server = http.createServer(async (req, res) => {
     if (req.url.startsWith('/uploads/')) {
         const p = path.join(__dirname, req.url);
         if (fs.existsSync(p)) {
-            res.setHeader('Content-Type', '');
+            const ext = path.extname(p).toLowerCase();
+            const types = {
+                '.mp4': 'video/mp4', '.mov': 'video/quicktime',
+                '.webm': 'video/webm', '.mp3': 'audio/mpeg',
+                '.m4a': 'audio/mp4', '.aac': 'audio/aac',
+                '.ogg': 'audio/ogg', '.wav': 'audio/wav',
+                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                '.png': 'image/png', '.gif': 'image/gif',
+                '.webp': 'image/webp'
+            };
+            res.setHeader('Content-Type', types[ext] || 'application/octet-stream');
+            res.setHeader('Accept-Ranges', 'bytes');
             fs.createReadStream(p).pipe(res);
         } else {
             res.writeHead(404); res.end('Not found');
@@ -262,3 +273,10 @@ const PORT = process.env.PORT || 3000;
 initDB().then(() => {
     server.listen(PORT, () => console.log(`✅ Сервер запущен на http://localhost:${PORT}`));
 });
+```
+
+После замены:
+```
+git add .
+git commit -m "fix content-type for safari"
+git push
