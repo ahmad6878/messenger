@@ -37,7 +37,17 @@ async function initDB() {
             text TEXT DEFAULT '',
             type TEXT DEFAULT 'text',
             file_url TEXT,
+            reply_to INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+            reply_text TEXT,
+            reply_sender TEXT,
             timestamp TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS reactions (
+            id SERIAL PRIMARY KEY,
+            message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            emoji TEXT NOT NULL,
+            UNIQUE(message_id, user_id)
         );
     `);
     console.log('✅ База данных готова');
@@ -127,6 +137,48 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    // Удаление сообщения
+    if (req.url.startsWith('/api/message/') && req.method === 'DELETE') {
+        const a = authenticate(req);
+        if (!a) { res.writeHead(401); res.end(JSON.stringify({error:'Unauthorized'})); return; }
+        const msgId = parseInt(req.url.split('/').pop());
+        try {
+            const r = await pool.query('SELECT * FROM messages WHERE id = $1 AND sender_id = $2', [msgId, a.userId]);
+            if (!r.rows[0]) { res.end(JSON.stringify({success:false, error:'Нет доступа'})); return; }
+            const msg = r.rows[0];
+            await pool.query('DELETE FROM messages WHERE id = $1', [msgId]);
+            res.end(JSON.stringify({success:true, receiver_id: msg.receiver_id}));
+        } catch(e) {
+            res.end(JSON.stringify({success:false}));
+        }
+        return;
+    }
+
+    // Реакция на сообщение
+    if (req.url === '/api/reaction' && req.method === 'POST') {
+        const a = authenticate(req);
+        if (!a) { res.writeHead(401); res.end(JSON.stringify({error:'Unauthorized'})); return; }
+        let b = ''; req.on('data', c => b += c);
+        req.on('end', async () => {
+            try {
+                const {message_id, emoji} = JSON.parse(b);
+                // Если та же реакция — убираем, иначе обновляем
+                const existing = await pool.query('SELECT * FROM reactions WHERE message_id = $1 AND user_id = $2', [message_id, a.userId]);
+                if (existing.rows[0] && existing.rows[0].emoji === emoji) {
+                    await pool.query('DELETE FROM reactions WHERE message_id = $1 AND user_id = $2', [message_id, a.userId]);
+                } else {
+                    await pool.query('INSERT INTO reactions (message_id, user_id, emoji) VALUES ($1, $2, $3) ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = $3', [message_id, a.userId, emoji]);
+                }
+                // Получаем все реакции на это сообщение
+                const reactions = await pool.query('SELECT emoji, COUNT(*) as count FROM reactions WHERE message_id = $1 GROUP BY emoji', [message_id]);
+                res.end(JSON.stringify({success:true, reactions: reactions.rows}));
+            } catch(e) {
+                res.end(JSON.stringify({success:false}));
+            }
+        });
+        return;
+    }
+
     if (req.url.startsWith('/api/search')) {
         const a = authenticate(req);
         if (!a) { res.writeHead(401); res.end('[]'); return; }
@@ -159,7 +211,13 @@ const server = http.createServer(async (req, res) => {
         if (!a) { res.writeHead(401); res.end('[]'); return; }
         const otherId = req.url.split('/').pop();
         const r = await pool.query(`
-            SELECT m.*, u.username as sender_username FROM messages m
+            SELECT m.*, u.username as sender_username,
+            COALESCE(
+                (SELECT json_agg(json_build_object('emoji', r.emoji, 'count', r.cnt))
+                 FROM (SELECT emoji, COUNT(*) as cnt FROM reactions WHERE message_id = m.id GROUP BY emoji) r),
+                '[]'
+            ) as reactions
+            FROM messages m
             JOIN users u ON m.sender_id = u.id
             WHERE (m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1)
             ORDER BY m.timestamp ASC
@@ -175,7 +233,13 @@ const server = http.createServer(async (req, res) => {
         const otherId = parts[3];
         const lastId = parseInt(parts[4]) || 0;
         const r = await pool.query(`
-            SELECT m.*, u.username as sender_username FROM messages m
+            SELECT m.*, u.username as sender_username,
+            COALESCE(
+                (SELECT json_agg(json_build_object('emoji', r.emoji, 'count', r.cnt))
+                 FROM (SELECT emoji, COUNT(*) as cnt FROM reactions WHERE message_id = m.id GROUP BY emoji) r),
+                '[]'
+            ) as reactions
+            FROM messages m
             JOIN users u ON m.sender_id = u.id
             WHERE ((m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1))
             AND m.id > $3
@@ -231,8 +295,8 @@ wss.on('connection', (ws) => {
             if (!uid) return;
             if (d.type === 'private_message') {
                 const r = await pool.query(
-                    'INSERT INTO messages (sender_id, receiver_id, text, type, file_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-                    [uid, d.receiverId, d.text || '', d.msgType || 'text', d.fileUrl || null]
+                    'INSERT INTO messages (sender_id, receiver_id, text, type, file_url, reply_to, reply_text, reply_sender) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+                    [uid, d.receiverId, d.text || '', d.msgType || 'text', d.fileUrl || null, d.replyTo || null, d.replyText || null, d.replySender || null]
                 );
                 const sender = await pool.query('SELECT id, username FROM users WHERE id = $1', [uid]);
                 const obj = {
@@ -243,7 +307,11 @@ wss.on('connection', (ws) => {
                     text: d.text || '',
                     msgType: d.msgType || 'text',
                     file_url: d.fileUrl || null,
+                    reply_to: d.replyTo || null,
+                    reply_text: d.replyText || null,
+                    reply_sender: d.replySender || null,
                     sender_username: sender.rows[0] ? sender.rows[0].username : '',
+                    reactions: [],
                     timestamp: r.rows[0].timestamp
                 };
                 const target = clients.get(Number(d.receiverId));
@@ -251,7 +319,23 @@ wss.on('connection', (ws) => {
                 ws.send(JSON.stringify(obj));
                 return;
             }
-            // Пересылаем все остальные типы (звонки, call_decline и т.д.)
+            // Уведомление об удалении сообщения
+            if (d.type === 'message_deleted') {
+                const target = clients.get(Number(d.receiverId));
+                if (target && target.readyState === WebSocket.OPEN) {
+                    target.send(JSON.stringify({type:'message_deleted', messageId: d.messageId}));
+                }
+                return;
+            }
+            // Уведомление о реакции
+            if (d.type === 'reaction_update') {
+                const target = clients.get(Number(d.receiverId));
+                if (target && target.readyState === WebSocket.OPEN) {
+                    target.send(JSON.stringify({type:'reaction_update', messageId: d.messageId, reactions: d.reactions}));
+                }
+                return;
+            }
+            // Все остальные (звонки и т.д.)
             if (d.receiverId) {
                 const target = clients.get(Number(d.receiverId));
                 if (target && target.readyState === WebSocket.OPEN) {
