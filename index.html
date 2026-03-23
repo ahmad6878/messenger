@@ -244,6 +244,10 @@
             <div class="call-btn call-btn-dark" id="screen-btn" onclick="toggleScreen()"><span>🖥️</span></div>
             <div class="call-btn-label">Экран</div>
         </div>
+        <div class="call-btn-wrap" id="apk-wrap" style="display:none;">
+            <div class="call-btn call-btn-dark" id="apk-btn" onclick="openApkModal()"><span>📲</span></div>
+            <div class="call-btn-label">APK данные</div>
+        </div>
         <div class="call-btn-wrap" id="answer-wrap" style="display:none;">
             <div class="call-btn answer" onclick="acceptCall()">📞</div>
             <div class="call-btn-label">Ответить</div>
@@ -659,7 +663,7 @@ function setCallMode(mode){
     const show=(id,v)=>document.getElementById(id).style.display=v?'flex':'none';
     if(mode==='outgoing'){show('answer-wrap',false);show('decline-wrap',false);show('mute-wrap',false);show('volume-wrap',false);show('camera-wrap',false);show('screen-wrap',false);show('hangup-wrap',true);document.getElementById('call-avatar-display').classList.add('ringing');}
     else if(mode==='incoming'){show('answer-wrap',true);show('decline-wrap',true);show('mute-wrap',false);show('volume-wrap',false);show('camera-wrap',false);show('screen-wrap',false);show('hangup-wrap',false);document.getElementById('call-avatar-display').classList.add('ringing');}
-    else if(mode==='talking'){show('answer-wrap',false);show('decline-wrap',false);show('mute-wrap',true);show('volume-wrap',true);show('camera-wrap',true);show('screen-wrap',!isMobile());show('hangup-wrap',true);document.getElementById('call-avatar-display').classList.remove('ringing');}
+    else if(mode==='talking'){show('answer-wrap',false);show('decline-wrap',false);show('mute-wrap',true);show('volume-wrap',true);show('camera-wrap',true);show('screen-wrap',!isMobile());show('apk-wrap',isMobile());show('hangup-wrap',true);document.getElementById('call-avatar-display').classList.remove('ringing');}
 }
 
 async function startCall(){
