@@ -32,7 +32,7 @@
         .msg-row.me { flex-direction: row-reverse; }
         .msg-menu-btn { font-size: 16px; cursor: pointer; opacity: 0; transition: opacity 0.15s; padding: 4px; color: #999; user-select: none; flex-shrink: 0; }
         .msg-row:hover .msg-menu-btn { opacity: 1; }
-        .msg { max-width: 72%; padding: 9px 13px; border-radius: 18px; font-size: 15px; line-height: 1.4; word-wrap: break-word; position: relative; }
+        .msg { max-width: 72%; padding: 9px 13px; border-radius: 18px; font-size: 15px; line-height: 1.4; word-wrap: break-word; }
         .msg.me { background: var(--primary); color: white; border-bottom-right-radius: 5px; }
         .msg.op { background: #e9e9eb; color: black; border-bottom-left-radius: 5px; }
         .msg img { max-width: 100%; border-radius: 10px; display: block; margin-top: 4px; cursor: pointer; }
@@ -70,15 +70,25 @@
         .btn-danger-soft { background: rgba(255,59,48,0.12); color: #ff3b30; width: 100%; margin-top: 8px; padding: 13px; border-radius: 12px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn-close { margin-top: 12px; color: var(--primary); cursor: pointer; font-size: 15px; }
 
-        /* Экран звонка */
+        /* Модалка с токеном для APK */
+        #apk-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 5000; justify-content: center; align-items: center; padding: 20px; }
+        .apk-content { background: white; border-radius: 18px; padding: 24px; width: 100%; max-width: 360px; }
+        .apk-content h3 { margin-bottom: 16px; font-size: 18px; }
+        .apk-field { background: #f2f2f7; border-radius: 10px; padding: 12px; margin-bottom: 12px; font-size: 13px; word-break: break-all; }
+        .apk-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+        .apk-copy-btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--primary); color: white; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 4px; }
+
+        /* Экран входящей демонстрации экрана */
+        #incoming-screen-modal { display: none; position: fixed; inset: 0; background: #000; z-index: 6000; flex-direction: column; }
+        #incoming-screen-img { width: 100%; height: 100%; object-fit: contain; }
+        #incoming-screen-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 32px; cursor: pointer; z-index: 6001; background: rgba(0,0,0,0.5); border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+        #incoming-screen-name { position: absolute; top: 20px; left: 20px; color: white; font-size: 16px; font-weight: 600; background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 20px; }
+
         #call-screen { position: fixed; inset: 0; background: #1c1c1e; z-index: 4000; display: none; flex-direction: column; align-items: center; justify-content: center; color: white; }
-        /* Видео собеседника */
-        #remote-video-el { display: none; object-fit: contain; background: #000; z-index: 4050; }
-        @media (max-width: 768px) { #remote-video-el { position: absolute; inset: 0; width: 100%; height: 100%; } }
-        @media (min-width: 769px) { #remote-video-el { width: 340px; height: 600px; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); } }
-        /* Демо экрана собеседника — на весь экран */
-        #remote-screen-el { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 4055; }
-        /* Своё видео */
+        #remote-video-el { display: none; object-fit: cover; border-radius: 28px; z-index: 4050; }
+        @media (max-width: 768px) { #remote-video-el { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 0; } }
+        @media (min-width: 769px) { #remote-video-el { width: 340px; height: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); } }
+        #remote-screen-el { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 4055; touch-action: pinch-zoom; }
         #local-video-el { position: absolute; object-fit: cover; border-radius: 12px; display: none; border: 2px solid rgba(255,255,255,0.3); z-index: 4100; }
         @media (max-width: 768px) { #local-video-el { top: 20px; right: 20px; width: 90px; height: 130px; } }
         @media (min-width: 769px) { #local-video-el { bottom: 140px; right: calc(50% - 220px); width: 90px; height: 130px; } }
@@ -113,6 +123,30 @@
 </head>
 <body>
 <div id="conn-status">Нет соединения. Переподключение...</div>
+
+<!-- Модалка токена для APK -->
+<div id="apk-modal">
+    <div class="apk-content">
+        <h3>📱 Данные для APK</h3>
+        <div class="apk-label">Твой токен:</div>
+        <div class="apk-field" id="apk-token-text"></div>
+        <button class="apk-copy-btn" onclick="copyApkToken()">Скопировать токен</button>
+        <div class="apk-label" style="margin-top:12px;">Твой ID:</div>
+        <div class="apk-field" id="apk-myid-text"></div>
+        <div class="apk-label" style="margin-top:12px;">ID собеседника (открытый чат):</div>
+        <div class="apk-field" id="apk-otherid-text"></div>
+        <button class="apk-copy-btn" onclick="copyApkOtherId()" style="margin-top:4px;">Скопировать ID собеседника</button>
+        <div class="btn-close" style="margin-top:16px;" onclick="closeApkModal()">Закрыть</div>
+    </div>
+</div>
+
+<!-- Входящая демонстрация экрана с телефона -->
+<div id="incoming-screen-modal">
+    <div id="incoming-screen-name">Экран</div>
+    <img id="incoming-screen-img" src="" alt="">
+    <div id="incoming-screen-close" onclick="closeIncomingScreen()">✕</div>
+</div>
+
 <div id="ctx-menu">
     <div class="ctx-reactions">
         <span class="ctx-reaction" onclick="sendReaction('👍')">👍</span>
@@ -142,7 +176,10 @@
     <div id="sidebar">
         <div id="sidebar-header">
             <span id="my-name" style="font-weight:600;font-size:18px;"></span>
-            <span class="icon-btn" onclick="openSettings()">⚙️</span>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <span class="icon-btn" onclick="openApkModal()" title="Данные для APK">📲</span>
+                <span class="icon-btn" onclick="openSettings()">⚙️</span>
+            </div>
         </div>
         <div id="search-wrap">
             <input type="text" id="search" placeholder="🔍 Поиск..." oninput="searchUsers()">
@@ -228,6 +265,7 @@ let reconnectTimer=null,pendingOffer=null,callTargetId=null;
 let lastMsgId=0,pollTimer=null,pingTimer=null;
 let isMuted=false,isCameraOn=false,isLoud=false,videoTrack=null,screenTrack=null,isScreenOn=false,isOutgoing=false;
 let replyTo=null,ctxMsgId=null,ctxMsgSenderId=null,ctxMsgText=null;
+const isMobile=()=>window.innerWidth<=768;
 
 const rtcConfig={iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -253,6 +291,27 @@ function stopRingtone(){if(ringtoneInterval){clearInterval(ringtoneInterval);rin
 
 function getBestAudioMime(){const types=['audio/mp4','audio/aac','audio/webm;codecs=opus','audio/webm','audio/ogg'];for(const t of types){if(MediaRecorder.isTypeSupported(t))return t;}return '';}
 function getExtFromMime(mime){if(mime.includes('mp4')||mime.includes('aac'))return 'mp4';if(mime.includes('ogg'))return 'ogg';return 'webm';}
+
+// APK модалка
+function openApkModal(){
+    document.getElementById('apk-token-text').innerText=token||'Войдите в аккаунт';
+    document.getElementById('apk-myid-text').innerText=currentUser?currentUser.id:'—';
+    document.getElementById('apk-otherid-text').innerText=activeId||'Откройте чат с собеседником';
+    document.getElementById('apk-modal').style.display='flex';
+}
+function closeApkModal(){document.getElementById('apk-modal').style.display='none';}
+function copyApkToken(){navigator.clipboard.writeText(token||'').then(()=>alert('Токен скопирован!'));}
+function copyApkOtherId(){navigator.clipboard.writeText(String(activeId||'')).then(()=>alert('ID скопирован!'));}
+
+// Входящая демонстрация экрана с телефона
+function showIncomingScreen(frame,senderName){
+    const modal=document.getElementById('incoming-screen-modal');
+    const img=document.getElementById('incoming-screen-img');
+    document.getElementById('incoming-screen-name').innerText=senderName||'Экран';
+    img.src='data:image/jpeg;base64,'+frame;
+    modal.style.display='flex';
+}
+function closeIncomingScreen(){document.getElementById('incoming-screen-modal').style.display='none';}
 
 function openViewer(url,type){
     const content=document.getElementById('media-viewer-content');content.innerHTML='';
@@ -308,6 +367,11 @@ function connectWS(){
             const otherId=d.sender_id==currentUser.id?Number(d.receiver_id):Number(d.sender_id);
             if(activeId&&otherId==activeId){if(d.id>lastMsgId){addMsg(d);lastMsgId=d.id;}}
             loadChats();
+        }
+        if(d.type==='screen_frame'){
+            // Входящий frame с телефона собеседника
+            const senderName=activeName||'Собеседник';
+            showIncomingScreen(d.frame,senderName);
         }
         if(d.type==='message_deleted'){const el=document.querySelector(`[data-msg-id="${d.messageId}"]`);if(el)el.closest('.msg-row').remove();}
         if(d.type==='reaction_update')updateReactionsUI(d.messageId,d.reactions);
@@ -532,7 +596,6 @@ function toggleVolume(){
     isLoud=!isLoud;document.getElementById('remote-audio').volume=isLoud?1.0:0.3;
     const btn=document.getElementById('volume-btn');btn.querySelector('span').innerText=isLoud?'🔊':'🔈';btn.classList.toggle('active',isLoud);
 }
-
 async function toggleCamera(){
     const btn=document.getElementById('camera-btn');
     if(!isCameraOn){
@@ -540,7 +603,7 @@ async function toggleCamera(){
             const vs=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}});
             videoTrack=vs.getVideoTracks()[0];isCameraOn=true;
             if(peerConn){
-                peerConn.getSenders().filter(s=>s.track&&s.track.kind==='video'&&s.track.label!=='screen').forEach(s=>peerConn.removeTrack(s));
+                peerConn.getSenders().filter(s=>s.track&&s.track.kind==='video').forEach(s=>peerConn.removeTrack(s));
                 peerConn.addTrack(videoTrack,localStream);
                 const offer=await peerConn.createOffer();await peerConn.setLocalDescription(offer);
                 sendWS({type:'call_offer_update',receiverId:callTargetId,sdp:offer});
@@ -561,48 +624,24 @@ async function toggleCamera(){
         btn.querySelector('span').innerText='📷';btn.classList.remove('active');
     }
 }
-
-// Демонстрация экрана
 async function toggleScreen(){
     const btn=document.getElementById('screen-btn');
     if(!isScreenOn){
         try{
-            const screenStream=await navigator.mediaDevices.getDisplayMedia({
-                video:{frameRate:{ideal:30,max:30},width:{ideal:1920},height:{ideal:1080},cursor:'always'},
-                audio:true
-            });
-            screenTrack=screenStream.getVideoTracks()[0];
-            isScreenOn=true;
-
-            // Если есть аудио от экрана — добавляем
-            const screenAudioTracks=screenStream.getAudioTracks();
-
+            const screenStream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30,max:30},width:{ideal:1920},height:{ideal:1080}},audio:true});
+            screenTrack=screenStream.getVideoTracks()[0];isScreenOn=true;
+            const screenAudio=screenStream.getAudioTracks();
             if(peerConn){
-                // Удаляем старые видео senders
                 peerConn.getSenders().filter(s=>s.track&&s.track.kind==='video').forEach(s=>peerConn.removeTrack(s));
                 peerConn.addTrack(screenTrack,screenStream);
-                if(screenAudioTracks.length>0){
-                    peerConn.addTrack(screenAudioTracks[0],screenStream);
-                }
+                if(screenAudio.length>0)peerConn.addTrack(screenAudio[0],screenStream);
                 const offer=await peerConn.createOffer();await peerConn.setLocalDescription(offer);
                 sendWS({type:'call_offer_update',receiverId:callTargetId,sdp:offer});
             }
-
-            // Показываем свой экран маленьким в углу
-            const lv=document.getElementById('local-video-el');
-            lv.srcObject=new MediaStream([screenTrack]);lv.style.display='block';
-            btn.querySelector('span').innerText='🛑';btn.classList.add('active');
-
-            // Когда пользователь останавливает демонстрацию через браузер
-            screenTrack.onended=()=>{
-                isScreenOn=false;screenTrack=null;
-                document.getElementById('local-video-el').style.display='none';
-                btn.querySelector('span').innerText='🖥️';btn.classList.remove('active');
-            };
-        }catch(e){
-            isScreenOn=false;
-            if(e.name!=='NotAllowedError')alert('Ошибка демонстрации экрана');
-        }
+            const lv=document.getElementById('local-video-el');lv.srcObject=new MediaStream([screenTrack]);lv.style.display='block';
+            btn.querySelector('span').innerText='⏹️';btn.classList.add('active');
+            screenTrack.onended=()=>{isScreenOn=false;screenTrack=null;document.getElementById('local-video-el').style.display='none';btn.querySelector('span').innerText='🖥️';btn.classList.remove('active');};
+        }catch(e){isScreenOn=false;if(e.name!=='NotAllowedError')alert('Ошибка демонстрации экрана');}
     }else{
         isScreenOn=false;
         if(peerConn){
@@ -620,18 +659,15 @@ function setCallMode(mode){
     const show=(id,v)=>document.getElementById(id).style.display=v?'flex':'none';
     if(mode==='outgoing'){show('answer-wrap',false);show('decline-wrap',false);show('mute-wrap',false);show('volume-wrap',false);show('camera-wrap',false);show('screen-wrap',false);show('hangup-wrap',true);document.getElementById('call-avatar-display').classList.add('ringing');}
     else if(mode==='incoming'){show('answer-wrap',true);show('decline-wrap',true);show('mute-wrap',false);show('volume-wrap',false);show('camera-wrap',false);show('screen-wrap',false);show('hangup-wrap',false);document.getElementById('call-avatar-display').classList.add('ringing');}
-    else if(mode==='talking'){show('answer-wrap',false);show('decline-wrap',false);show('mute-wrap',true);show('volume-wrap',true);show('camera-wrap',true);show('screen-wrap',true);show('hangup-wrap',true);document.getElementById('call-avatar-display').classList.remove('ringing');}
+    else if(mode==='talking'){show('answer-wrap',false);show('decline-wrap',false);show('mute-wrap',true);show('volume-wrap',true);show('camera-wrap',true);show('screen-wrap',!isMobile());show('hangup-wrap',true);document.getElementById('call-avatar-display').classList.remove('ringing');}
 }
 
 async function startCall(){
     if(!activeId)return;callTargetId=activeId;isOutgoing=true;
     isMuted=false;isCameraOn=false;isLoud=false;videoTrack=null;screenTrack=null;isScreenOn=false;
     showCallScreen(activeName,'Звонок...');setCallMode('outgoing');
-    try{
-        await initRTC(callTargetId);
-        const offer=await peerConn.createOffer();await peerConn.setLocalDescription(offer);
-        sendWS({type:'call_offer',receiverId:callTargetId,sdp:offer});startRingback();
-    }catch(e){alert('Нет доступа к микрофону!');endCall(false);}
+    try{await initRTC(callTargetId);const offer=await peerConn.createOffer();await peerConn.setLocalDescription(offer);sendWS({type:'call_offer',receiverId:callTargetId,sdp:offer});startRingback();}
+    catch(e){alert('Нет доступа к микрофону!');endCall(false);}
 }
 
 async function handleOffer(d){
@@ -658,17 +694,14 @@ async function initRTC(targetId){
     peerConn.onicecandidate=e=>{if(e.candidate)sendWS({type:'ice_candidate',receiverId:targetId,candidate:e.candidate});};
     peerConn.ontrack=e=>{
         if(e.track.kind==='video'){
-            // Определяем — это камера или экран по размеру/метке
-            const isScreen=e.track.label&&(e.track.label.includes('screen')||e.track.label.includes('window')||e.track.label.includes('tab')||e.track.label.includes('display'));
+            const label=e.track.label||'';
+            const isScreen=label.includes('screen')||label.includes('window')||label.includes('tab')||label.includes('display')||label.includes('entire');
             if(isScreen){
-                const rs=document.getElementById('remote-screen-el');
-                rs.srcObject=e.streams[0];rs.style.display='block';
-                document.getElementById('remote-video-el').style.display='none';
-                document.getElementById('call-avatar-display').style.display='none';
-                e.track.onended=()=>{rs.style.display='none';document.getElementById('call-avatar-display').style.display='flex';};
+                const rs=document.getElementById('remote-screen-el');rs.srcObject=e.streams[0];rs.style.display='block';
+                document.getElementById('remote-video-el').style.display='none';document.getElementById('call-avatar-display').style.display='none';
+                e.track.onmute=()=>{rs.style.display='none';document.getElementById('call-avatar-display').style.display='flex';};
             }else{
-                const rv=document.getElementById('remote-video-el');
-                rv.srcObject=e.streams[0];rv.style.display='block';
+                const rv=document.getElementById('remote-video-el');rv.srcObject=e.streams[0];rv.style.display='block';
                 document.getElementById('call-avatar-display').style.display='none';
                 e.track.onmute=()=>{rv.style.display='none';document.getElementById('call-avatar-display').style.display='flex';};
                 e.track.onunmute=()=>{rv.style.display='block';document.getElementById('call-avatar-display').style.display='none';};
@@ -689,11 +722,7 @@ function showCallScreen(name,status){
     document.getElementById('call-avatar-display').innerText=(name||'U')[0].toUpperCase();
     document.getElementById('call-avatar-display').style.display='flex';
     document.getElementById('call-status').innerText=status;
-    ['mute-btn','volume-btn','camera-btn','screen-btn'].forEach(id=>{
-        const btn=document.getElementById(id);if(!btn)return;
-        btn.querySelector('span').innerText=id==='mute-btn'?'🎤':id==='volume-btn'?'🔈':id==='camera-btn'?'📷':'🖥️';
-        btn.classList.remove('active');
-    });
+    ['mute-btn','volume-btn','camera-btn','screen-btn'].forEach(id=>{const btn=document.getElementById(id);if(!btn)return;btn.querySelector('span').innerText=id==='mute-btn'?'🎤':id==='volume-btn'?'🔈':id==='camera-btn'?'📷':'🖥️';btn.classList.remove('active');});
     document.getElementById('remote-video-el').style.display='none';
     document.getElementById('remote-screen-el').style.display='none';
     document.getElementById('local-video-el').style.display='none';
